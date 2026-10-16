@@ -41,8 +41,8 @@ export default function MaisPage() {
           <Cartao className="flex gap-3 border-alerta/30! bg-alerta-claro! text-alerta">
             <CloudOff className="mt-0.5 size-5 shrink-0" aria-hidden />
             <p>
-              Seus dados estão salvos <strong>só neste aparelho</strong>. Para usar em outros aparelhos e não perder nada, o
-              guia <code className="font-semibold">docs/CONFIGURACAO.md</code> explica como ativar a sincronização.
+              Seus dados estão salvos <strong>só neste aparelho</strong>. Quando a sincronização for ativada (passo a passo no
+              guia de configuração do app), tudo passa a aparecer nos dois celulares.
             </p>
           </Cartao>
         ) : (

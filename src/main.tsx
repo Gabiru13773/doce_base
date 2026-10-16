@@ -14,7 +14,10 @@ const UM_DIA = 1000 * 60 * 60 * 24
 
 const queryClient = new QueryClient({
   defaultOptions: {
-    queries: { staleTime: 30_000, gcTime: UM_DIA, retry: 1 },
+    // offlineFirst: mostra o que está guardado mesmo sem internet.
+    queries: { staleTime: 30_000, gcTime: UM_DIA, retry: 1, networkMode: 'offlineFirst' },
+    // always: salvar nunca fica "pendurado" sem internet; mostra o erro na hora.
+    mutations: { networkMode: 'always' },
   },
 })
 

@@ -37,7 +37,7 @@ export default function InicioPage() {
   const atalhos: Atalho[] = [
     { para: '/producao', titulo: 'Registrar produção', descricao: 'O que saiu do forno', icone: CookingPot, emBreve: true },
     { para: '/insumos', titulo: 'Insumos', descricao: descricaoInsumos, icone: Package },
-    { para: '/receitas', titulo: 'Receitas', descricao: 'Custo de cada receita', icone: ChefHat, emBreve: true },
+    { para: '/receitas', titulo: 'Receitas', descricao: 'Custo e preço', icone: ChefHat, emBreve: true },
     { para: '/config/precos', titulo: 'Preços e margens', descricao: 'Hora, taxas e lucro', icone: Calculator },
   ]
 
