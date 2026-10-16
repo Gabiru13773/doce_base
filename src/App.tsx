@@ -10,6 +10,9 @@ const InsumosPage = lazy(() => import('./modules/insumos/InsumosPage'))
 const InsumoFormPage = lazy(() => import('./modules/insumos/InsumoFormPage'))
 const ConfigPage = lazy(() => import('./modules/config/ConfigPage'))
 const MaisPage = lazy(() => import('./modules/mais/MaisPage'))
+const ReceitasPage = lazy(() => import('./modules/receitas/ReceitasPage'))
+const ReceitaFormPage = lazy(() => import('./modules/receitas/ReceitaFormPage'))
+const FichaTecnicaPage = lazy(() => import('./modules/receitas/FichaTecnicaPage'))
 const EmBrevePage = lazy(() => import('./modules/embreve/EmBrevePage'))
 const FinanceiroInicio = lazy(() => import('./modules/financeiro/FinanceiroInicio'))
 
@@ -46,12 +49,10 @@ export default function App() {
             />
           }
         />
-        <Route
-          path="receitas"
-          element={
-            <EmBrevePage titulo="Receitas" itens={['Cadastrar receitas com ficha técnica, custo e preço de venda automático']} />
-          }
-        />
+        <Route path="receitas" element={<ReceitasPage />} />
+        <Route path="receitas/nova" element={<ReceitaFormPage />} />
+        <Route path="receitas/:id" element={<ReceitaFormPage />} />
+        <Route path="receitas/:id/ficha" element={<FichaTecnicaPage />} />
         <Route
           path="estoque"
           element={
