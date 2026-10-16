@@ -1,0 +1,63 @@
+@import 'tailwindcss';
+
+/*
+ * Cores da marca Euforia.
+ * PROVISÓRIAS: serão trocadas pelas cores tiradas da logo oficial.
+ * Para mudar as cores do app inteiro, basta alterar os valores abaixo
+ * (e o "theme_color" em vite.config.ts / index.html).
+ */
+@theme {
+  --color-marca: #b83a6b;
+  --color-marca-escura: #8e2550;
+  --color-marca-clara: #fbe7ef;
+  --color-creme: #fff8f3;
+  --color-superficie: #ffffff;
+  --color-tinta: #2b1b22;
+  --color-suave: #74626b;
+  --color-borda: #eedfe3;
+  --color-ok: #2e7d4f;
+  --color-ok-claro: #e6f4ec;
+  --color-alerta: #a15c07;
+  --color-alerta-claro: #fdf1dc;
+  --color-perigo: #c0362c;
+  --color-perigo-claro: #fbe9e7;
+
+  --font-sans: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-marca: Georgia, 'Times New Roman', serif;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  background: var(--color-creme);
+  color: var(--color-tinta);
+  font-family: var(--font-sans);
+  font-size: 16px;
+  line-height: 1.45;
+}
+
+/* Campos com no mínimo 16px evitam o zoom automático no iPhone. */
+input,
+select,
+textarea,
+button {
+  font: inherit;
+}
+
+/* Espaço para a barra inferior e a área segura do iPhone. */
+.pb-nav {
+  padding-bottom: calc(5.5rem + env(safe-area-inset-bottom));
+}
+
+.safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+}
