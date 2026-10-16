@@ -253,19 +253,13 @@ describe('precificar: casos de borda', () => {
     expect(p.abaixoDoCusto).toBe(false)
   })
 
-  it('pv_manual = 0 é tratado como preço manual (manual true, abaixo do custo)', () => {
+  // Decisão: preço manual R$ 0 não é um preço (o banco exige pv_manual > 0);
+  // a receita volta a usar o preço sugerido.
+  it('pv_manual = 0 volta para o preço sugerido', () => {
     const p = precificar({ ...bolo, pv_manual: 0 }, 30, cfg)
-    expect(p.manual).toBe(true)
-    expect(p.pvFinal).toBe(0)
-    expect(p.abaixoDoCusto).toBe(true)
-  })
-
-  // BUG: vender a R$ 0 dá prejuízo de todo o custo, mas o lucro aparece como 0.
-  // margemReal() devolve { lucro: 0 } quando pv <= 0.
-  it.fails('pv_manual = 0: lucro deveria ser −custo (hoje aparece 0)', () => {
-    const p = precificar({ ...bolo, pv_manual: 0 }, 30, cfg)
-    expect(p.lucroPorUnidade).toBeCloseTo(-3, 10)
-    expect(p.lucroTotal).toBeCloseTo(-30, 10)
+    expect(p.manual).toBe(false)
+    expect(p.pvFinal).toBe(p.pvSugerido)
+    expect(p.abaixoDoCusto).toBe(false)
   })
 
   it('preço manual acima do sugerido mostra a margem real maior', () => {
@@ -345,7 +339,7 @@ describe('receitas vazias, zeros e itens inativos', () => {
   })
 
   // BUG: custo 0 com arredondamento ',90' sugere R$ 0,90 (preço inventado para receita vazia).
-  it.fails("receita sem custo não deveria sugerir R$ 0,90 com 'centavos90'", () => {
+  it("receita sem custo não deveria sugerir R$ 0,90 com 'centavos90'", () => {
     const r = receita({ id: 'r', nome: 'R' })
     const p = precificar(r, 0, { ...cfg, arredondamento: 'centavos90' })
     expect(p.pvSugerido === null || p.pvSugerido === 0).toBe(true)
@@ -389,7 +383,7 @@ describe('receitas vazias, zeros e itens inativos', () => {
 
   // RISCO: rendimento 0 numa sub-receita zera o custo dela em silêncio (custoPorBase = 0),
   // sem problema na lista. O banco impede (rendimento_qtd > 0), mas o modo local não.
-  it.fails('sub-receita com rendimento 0 deveria aparecer como problema', () => {
+  it('sub-receita com rendimento 0 deveria aparecer como problema', () => {
     const sub = receita({ id: 's', nome: 'S', rendimento_qtd: 0, itens: [{ tipo: 'insumo', id: 'choc', quantidade: 100 }] })
     const r = receita({ id: 'r', nome: 'R', itens: [{ tipo: 'receita', id: 's', quantidade: 1 }] })
     expect(calcularCusto('r', ctx([sub, r])).problemas.length).toBeGreaterThan(0)
@@ -424,14 +418,14 @@ describe('plural', () => {
   // ("pão de mel" → "pães de mel", "bolo no pote" → "bolos no pote", "fatia de torta" → "fatias de torta").
   // Erra em "bolo pequeno" → "bolos pequeno", mas é melhor que pluralizar a última palavra
   // ("pão de méis", "bolo de potes"), que erra no caso mais comum (substantivo + "de" + complemento).
-  it.fails('nomes compostos: pluraliza só a primeira palavra (hoje vira "pão de méis")', () => {
+  it('nomes compostos: pluraliza só a primeira palavra (hoje vira "pão de méis")', () => {
     expect(plural('pão de mel', 20)).toBe('pães de mel')
     expect(plural('bolo no pote', 6)).toBe('bolos no pote')
     expect(plural('fatia de torta', 8)).toBe('fatias de torta')
   })
 
   // BUG: palavras terminadas em -m e o irregular "pão".
-  it.fails('pudim → pudins, bombom → bombons, pão → pães', () => {
+  it('pudim → pudins, bombom → bombons, pão → pães', () => {
     expect(plural('pudim', 2)).toBe('pudins')
     expect(plural('bombom', 2)).toBe('bombons')
     expect(plural('pão', 2)).toBe('pães')
@@ -439,7 +433,7 @@ describe('plural', () => {
 
   // Concordância: em pt-BR o plural começa em 2 ("1,5 kg", "1,5 fatia" é o usual) e zero vai no plural.
   // Cosmético; documentado como sugestão.
-  it.fails('1,5 → singular; 0 → plural', () => {
+  it('1,5 → singular; 0 → plural', () => {
     expect(textoRendimento({ rendimento_qtd: 1.5, rendimento_unidade: 'un', rendimento_nome: 'fatia' })).toBe('1,5 fatia')
     expect(textoRendimento({ rendimento_qtd: 0, rendimento_unidade: 'un', rendimento_nome: 'fatia' })).toBe('0 fatias')
   })

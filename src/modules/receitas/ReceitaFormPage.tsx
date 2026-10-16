@@ -22,6 +22,7 @@ import {
   calcularCusto,
   precificar,
   textoRendimento,
+  unidadeBaseReceita,
   usadaEm,
   type Contexto,
   type ItemReceita,
@@ -223,6 +224,7 @@ function validar(c: Campos): Erros {
   if (invalido(c.tempoForno)) e.tempoForno = 'Número inválido'
   if (invalido(c.tempoDescanso)) e.tempoDescanso = 'Número inválido'
   if (invalido(c.temperatura)) e.temperatura = 'Número inválido'
+  else if ((opcional(c.temperatura) ?? 0) > 400) e.temperatura = 'Use até 400 °C'
   return e
 }
 
@@ -481,6 +483,10 @@ function AbaReceita({
   receitaAtualId: string | null
 }) {
   const minutos = opcional(c.tempoPreparo) ?? 0
+  // Trocar g ↔ un ↔ ml numa receita base já usada muda o sentido das quantidades nas outras.
+  const salva = receitaAtualId ? receitasAtivas.find((r) => r.id === receitaAtualId) : undefined
+  const usos = salva ? usadaEm(salva.id, receitasAtivas) : []
+  const mudouFamilia = !!salva && usos.length > 0 && unidadeBaseReceita(salva) !== unidadeBaseReceita({ rendimento_unidade: c.rendUnidade })
   const ajudaTempo =
     config.valorHora > 0
       ? `Entra no custo como mão de obra: ${moeda(custoMaoDeObra(minutos, config.valorHora))}`
@@ -520,6 +526,14 @@ function AbaReceita({
             opcoes={UNIDADES_RENDIMENTO}
           />
         </div>
+
+        {mudouFamilia && (
+          <p role="alert" className="rounded-xl bg-alerta-claro p-3 text-sm font-medium text-alerta">
+            Atenção: esta receita é usada em {usos.map((u) => u.nome).join(', ')}. Mudar de{' '}
+            {unidadeBaseReceita(salva!) === 'un' ? 'unidades' : unidadeBaseReceita(salva!) === 'g' ? 'peso' : 'volume'} para outro tipo
+            de medida muda as quantidades lá. Confira essas receitas depois de salvar.
+          </p>
+        )}
 
         {c.rendUnidade === 'un' && (
           <div className="flex flex-col gap-2">

@@ -45,7 +45,7 @@ export default function Layout() {
   const menu = financeiro ? MENU_FINANCEIRO : MENU_PRODUCAO
 
   return (
-    <div className="min-h-dvh md:pl-60">
+    <div className="min-h-dvh md:pl-60 print:pl-0">
       {/* Menu lateral (computador) */}
       <aside className="no-print fixed inset-y-0 left-0 z-30 hidden w-60 flex-col gap-6 border-r border-borda bg-superficie p-4 md:flex">
         <Marca />
@@ -75,7 +75,7 @@ export default function Layout() {
         <TrocaArea financeiro={financeiro} />
       </header>
 
-      <main className="mx-auto max-w-2xl px-4 pt-4 pb-44 md:pt-8 md:pb-28">
+      <main className="mx-auto max-w-2xl px-4 pt-4 pb-44 md:pt-8 md:pb-28 print:max-w-none print:p-0">
         <Suspense fallback={<Carregando />}>
           <Outlet />
         </Suspense>

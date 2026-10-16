@@ -50,7 +50,10 @@ export function precoPorMarkupDivisor(custoDireto: number, c: Pick<ConfigPrecifi
   return custoDireto / divisor
 }
 
-/** Arredonda sempre para cima, para nunca reduzir a margem. */
+/**
+ * Arredonda para cima (não reduz a margem). Antes, ajusta para o centavo mais próximo
+ * para ignorar ruído de ponto flutuante — isso pode tirar menos de meio centavo.
+ */
 export function arredondarPreco(valor: number, modo: Arredondamento): number {
   // Corrige ruído de ponto flutuante (ex.: 59.99999999) antes de arredondar para cima.
   const v = Math.round(valor * 100) / 100

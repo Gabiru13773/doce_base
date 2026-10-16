@@ -75,16 +75,30 @@ export function unidadeVenda(r: Pick<ReceitaCalculo, 'rendimento_unidade' | 'ren
   return { rotulo: 'litro', fator: 1000 }
 }
 
-/** Plural simples em português: fatia → fatias, porção → porções, pastel → pastéis, flor → flores. */
-export function plural(palavra: string, qtd: number): string {
-  const p = palavra.trim()
-  if (Math.abs(qtd) <= 1 || p === '' || /^(kg|g|ml|l|un)$/i.test(p)) return p
+const PLURAL_IRREGULAR: Record<string, string> = { pão: 'pães', mão: 'mãos', cão: 'cães' }
+
+function pluralPalavra(p: string): string {
+  const irregular = PLURAL_IRREGULAR[p.toLowerCase()]
+  if (irregular) return irregular
   if (/ão$/i.test(p)) return p.replace(/ão$/i, 'ões')
   if (/el$/i.test(p)) return p.replace(/el$/i, 'éis')
   if (/al$/i.test(p)) return p.replace(/al$/i, 'ais')
+  if (/m$/i.test(p)) return p.slice(0, -1) + 'ns'
   if (/[rz]$/i.test(p)) return p + 'es'
   if (/s$/i.test(p)) return p
   return p + 's'
+}
+
+/**
+ * Plural em português: fatia → fatias, porção → porções, pudim → pudins.
+ * Em nomes compostos só a primeira palavra muda ("pão de mel" → "pães de mel").
+ * Abaixo de 2 fica no singular ("1,5 fatia"); zero vai para o plural ("0 fatias").
+ */
+export function plural(palavra: string, qtd: number): string {
+  const p = palavra.trim().replace(/\s+/g, ' ')
+  if ((qtd !== 0 && Math.abs(qtd) < 2) || p === '' || /^(kg|g|ml|l|un)$/i.test(p)) return p
+  const [primeira, ...resto] = p.split(' ')
+  return [pluralPalavra(primeira), ...resto].join(' ')
 }
 
 /** Texto do rendimento: "10 fatias", "1,2 kg", "500 ml". */
@@ -154,7 +168,7 @@ function calcularComMemo(id: string, ctx: Contexto, memo: Map<string, ResultadoC
         continue
       }
       const rs = calcularComMemo(item.id, ctx, memo, visitando)
-      const problema = rs.problemas.length ? rs.problemas[0] : undefined
+      const problema = !(rendimentoBase(sub) > 0) ? 'Rendimento não informado' : rs.problemas.length ? rs.problemas[0] : undefined
       if (problema) problemas.push(`${sub.nome}: ${problema}`)
       linhas.push({ item, nome: sub.nome, unidade: unidadeBaseReceita(sub), custo: rs.custoPorBase * item.quantidade, problema })
     }
@@ -219,9 +233,10 @@ export function precificar(r: ReceitaCalculo, custoDireto: number, config: Confi
   const custoPorUnidade = qtdVenda > 0 ? custoDireto / qtdVenda : 0
   const pcts = percentuaisEfetivos(r, config)
   const bruto = precoPorMarkupDivisor(custoPorUnidade, pcts)
-  const pvSugerido = bruto === null ? null : arredondarPreco(bruto, config.arredondamento)
-  const manual = r.pv_manual !== null && r.pv_manual !== undefined
-  const pvFinal = manual ? r.pv_manual : pvSugerido
+  // Sem custo não há o que precificar (evita sugerir R$ 0,90 para uma receita vazia).
+  const pvSugerido = bruto === null ? null : custoPorUnidade > 0 ? arredondarPreco(bruto, config.arredondamento) : 0
+  const manual = r.pv_manual !== null && r.pv_manual !== undefined && r.pv_manual > 0
+  const pvFinal = manual ? (r.pv_manual as number) : pvSugerido
   const { lucro, pctMargem } = pvFinal === null ? { lucro: 0, pctMargem: 0 } : margemReal(pvFinal, custoPorUnidade, pcts)
   return {
     unidade: rotulo,

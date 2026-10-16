@@ -63,8 +63,11 @@ function normalizar(r: Receita): Receita {
     pct_taxas: num(r.pct_taxas),
     pct_margem: num(r.pct_margem),
     pv_manual: num(r.pv_manual),
-    itens: (Array.isArray(r.itens) ? r.itens : []).map((i: ItemReceita) => ({ ...i, quantidade: Number(i.quantidade) })),
-    passos: Array.isArray(r.passos) ? r.passos : [],
+    // Descarta itens malformados (dados antigos ou do modo local) para não virar NaN no preço.
+    itens: (Array.isArray(r.itens) ? r.itens : [])
+      .filter((i: ItemReceita) => !!i && (i.tipo === 'insumo' || i.tipo === 'receita') && typeof i.id === 'string')
+      .map((i: ItemReceita) => ({ tipo: i.tipo, id: i.id, quantidade: Number(i.quantidade) || 0 })),
+    passos: Array.isArray(r.passos) ? r.passos.filter((p: unknown): p is string => typeof p === 'string') : [],
   }
 }
 
@@ -140,14 +143,25 @@ export function useSalvarReceita() {
   return useMutation({
     mutationFn: async (dados: DadosReceita) => {
       const agora = new Date().toISOString()
-      // Limpa itens sem quantidade e passos vazios antes de gravar.
+      // Limpa itens sem quantidade e passos vazios, e usa as mesmas casas decimais do banco
+      // (tempos e temperatura são inteiros; % com 2 casas) para os dois modos calcularem igual.
+      const inteiro = (v: number | null) => (v === null ? null : Math.round(v))
+      const casas = (v: number | null, n: number) => (v === null ? null : Math.round(v * 10 ** n) / 10 ** n)
       const limpo = {
         ...dados,
+        rendimento_qtd: Math.round(dados.rendimento_qtd * 1000) / 1000,
+        tempo_preparo_min: Math.round(dados.tempo_preparo_min || 0),
+        tempo_forno_min: inteiro(dados.tempo_forno_min),
+        tempo_descanso_min: inteiro(dados.tempo_descanso_min),
+        temperatura_forno: inteiro(dados.temperatura_forno),
+        pct_custos_fixos: casas(dados.pct_custos_fixos, 2),
+        pct_taxas: casas(dados.pct_taxas, 2),
+        pct_margem: casas(dados.pct_margem, 2),
         nome: dados.nome.trim(),
         rendimento_nome: dados.rendimento_unidade === 'un' ? dados.rendimento_nome?.trim() || null : null,
         itens: dados.itens.filter((i) => i.quantidade > 0).map((i) => ({ ...i, quantidade: Math.round(i.quantidade * 1000) / 1000 })),
         passos: dados.passos.map((p) => p.trim()).filter(Boolean),
-        pv_manual: dados.pv_manual === null ? null : Math.round(dados.pv_manual * 100) / 100,
+        pv_manual: dados.pv_manual !== null && dados.pv_manual > 0 ? Math.round(dados.pv_manual * 100) / 100 : null,
       }
       return db.salvar<Receita>('receitas', {
         ...limpo,
