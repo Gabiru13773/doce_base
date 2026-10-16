@@ -31,11 +31,59 @@ create table if not exists public.receitas (
   pct_taxas           numeric(5,2)  check (pct_taxas >= 0),
   pct_margem          numeric(5,2)  check (pct_margem >= 0),
   -- Preço de venda digitado à mão, por unidade de venda (por fatia, por kg, por litro).
-  pv_manual           numeric(12,2) check (pv_manual >= 0),
+  -- (o check "maior que zero" fica abaixo, com nome, para valer também em tabelas já criadas)
+  pv_manual           numeric(12,2),
   ativo               boolean       not null default true,
   criado_em           timestamptz   not null default now(),
   atualizado_em       timestamptz   not null default now()
 );
+
+-- Formato mínimo de cada item: { "tipo": "insumo"|"receita", "id": "<texto>", "quantidade": <número ≥ 0> }.
+-- Não confere se o id existe (insumos/receitas apagados ficam inativos e o app avisa).
+create or replace function public.receita_itens_validos(itens jsonb)
+returns boolean
+language sql
+immutable
+set search_path = ''
+as $$
+  select jsonb_typeof(itens) = 'array'
+     and not exists (
+       select 1
+       from jsonb_array_elements(itens) as e(item)
+       where case
+               when jsonb_typeof(item) <> 'object' then true
+               when coalesce(item ->> 'tipo', '') not in ('insumo', 'receita') then true
+               when jsonb_typeof(item -> 'id') is distinct from 'string' or length(item ->> 'id') = 0 then true
+               when jsonb_typeof(item -> 'quantidade') is distinct from 'number' then true
+               else (item -> 'quantidade')::numeric < 0
+             end
+     )
+$$;
+
+-- Usada no check da tabela: quem grava (authenticated) precisa poder executá-la.
+revoke all on function public.receita_itens_validos(jsonb) from public, anon;
+grant execute on function public.receita_itens_validos(jsonb) to authenticated;
+
+-- Checks com nome, recriados a cada execução (assim valem também numa tabela criada
+-- por uma versão anterior deste arquivo).
+alter table public.receitas drop constraint if exists receitas_itens_formato;
+alter table public.receitas add constraint receitas_itens_formato
+  check (public.receita_itens_validos(itens));
+
+alter table public.receitas drop constraint if exists receitas_passos_formato;
+alter table public.receitas add constraint receitas_passos_formato
+  check (not jsonb_path_exists(passos, '$[*] ? (@.type() != "string")'));
+
+-- Ajustes da receita: o que estiver preenchido precisa somar menos de 100%
+-- (mesmo nome do check das configurações, para o app mostrar a mesma mensagem).
+alter table public.receitas drop constraint if exists pct_validos;
+alter table public.receitas add constraint pct_validos
+  check (coalesce(pct_custos_fixos, 0) + coalesce(pct_taxas, 0) + coalesce(pct_margem, 0) < 100);
+
+-- Preço manual: vazio (null) = usa o sugerido; se preenchido, maior que zero.
+alter table public.receitas drop constraint if exists receitas_pv_manual_check;
+alter table public.receitas add constraint receitas_pv_manual_check
+  check (pv_manual > 0);
 
 create or replace trigger receitas_atualizado_em
   before insert or update on public.receitas
