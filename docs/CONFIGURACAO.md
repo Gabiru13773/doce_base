@@ -210,7 +210,7 @@ Ele troca a logo, gera os ícones do celular e ajusta as cores do app para combi
 
 ### Se quiser fazer por conta própria
 
-- **Logo:** substitua o arquivo `public/logo.svg` (ou coloque um `public/logo.png`).
+- **Logo:** os arquivos ficam em `public/` (`logo-completa.webp`, `logo-nome.webp`, `logo-simbolo.png` e os ícones `icon-*.png`).
   Os ícones do celular são os arquivos `public/icon-192.png`, `public/icon-512.png` e
   `public/apple-touch-icon.png`. Eles também precisam ser refeitos com a nova logo.
 - **Cores:** ficam no arquivo `src/styles/theme.css`, no começo, em linhas como

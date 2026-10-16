@@ -10,7 +10,7 @@ export default defineConfig({
     tailwindcss(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['logo.svg', 'apple-touch-icon.png'],
+      includeAssets: ['favicon.png', 'apple-touch-icon.png', 'logo-simbolo.png', 'logo-nome.webp', 'logo-completa.webp'],
       manifest: {
         name: 'Euforia Confeitaria',
         short_name: 'Euforia',
@@ -18,12 +18,12 @@ export default defineConfig({
         lang: 'pt-BR',
         start_url: '/',
         display: 'standalone',
-        background_color: '#FFF8F3',
-        theme_color: '#B83A6B',
+        background_color: '#FEF6F0',
+        theme_color: '#FEF6F0',
         icons: [
           { src: 'icon-192.png', sizes: '192x192', type: 'image/png' },
           { src: 'icon-512.png', sizes: '512x512', type: 'image/png' },
-          { src: 'icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+          { src: 'icon-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
         ],
       },
       workbox: { navigateFallback: '/index.html' },

@@ -1,29 +1,32 @@
 @import 'tailwindcss';
 
 /*
- * Cores da marca Euforia.
- * PROVISÓRIAS: serão trocadas pelas cores tiradas da logo oficial.
+ * Cores da marca Euforia, tiradas da logo oficial.
+ * Magenta = cor principal (botões e destaques); laranja = detalhes;
+ * marrom = textos; amarelo = avisos; creme = fundo.
  * Para mudar as cores do app inteiro, basta alterar os valores abaixo
  * (e o "theme_color" em vite.config.ts / index.html).
  */
 @theme {
-  --color-marca: #b83a6b;
-  --color-marca-escura: #8e2550;
-  --color-marca-clara: #fbe7ef;
-  --color-creme: #fff8f3;
+  --color-marca: #d20956;
+  --color-marca-escura: #a8063f;
+  --color-marca-clara: #fde6ef;
+  --color-laranja: #fd6f1f;
+  --color-laranja-clara: #ffeadb;
+  --color-amarelo: #ffc33f;
+  --color-creme: #fef6f0;
   --color-superficie: #ffffff;
-  --color-tinta: #2b1b22;
-  --color-suave: #74626b;
-  --color-borda: #eedfe3;
+  --color-tinta: #4a2412;
+  --color-suave: #7d6458;
+  --color-borda: #f1e2d8;
   --color-ok: #2e7d4f;
   --color-ok-claro: #e6f4ec;
-  --color-alerta: #a15c07;
-  --color-alerta-claro: #fdf1dc;
+  --color-alerta: #9a5300;
+  --color-alerta-claro: #fff3d6;
   --color-perigo: #c0362c;
   --color-perigo-claro: #fbe9e7;
 
   --font-sans: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-  --font-marca: Georgia, 'Times New Roman', serif;
 }
 
 html {

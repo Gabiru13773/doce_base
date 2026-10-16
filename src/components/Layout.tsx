@@ -112,9 +112,9 @@ export default function Layout() {
 
 function Marca() {
   return (
-    <Link to="/" className="flex items-center gap-2" aria-label="Euforia, início">
-      <img src="/logo.svg" alt="" className="size-9" />
-      <span className="font-marca text-xl italic text-marca">Euforia</span>
+    <Link to="/" className="flex min-w-0 shrink items-center gap-2" aria-label="Início">
+      <img src="/logo-simbolo.png" alt="" width="48" height="36" className="h-9 w-auto" />
+      <img src="/logo-nome.webp" alt="Euforia Confeitaria" width="320" height="106" className="h-8 w-auto max-[379px]:hidden" />
     </Link>
   )
 }

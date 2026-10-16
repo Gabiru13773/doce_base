@@ -87,7 +87,7 @@ export default function App() {
 function TelaCarregando() {
   return (
     <div className="flex min-h-dvh flex-col items-center justify-center gap-3" aria-busy="true">
-      <img src="/logo.svg" alt="" className="size-20 animate-pulse" />
+      <img src="/logo-simbolo.png" alt="" width="96" height="72" className="h-20 w-auto animate-pulse" />
       <p className="text-suave">Carregando…</p>
     </div>
   )

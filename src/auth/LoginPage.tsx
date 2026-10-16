@@ -24,8 +24,9 @@ export default function LoginPage() {
     <main className="flex min-h-dvh items-center justify-center px-4">
       <form onSubmit={entrar} className="flex w-full max-w-sm flex-col gap-5">
         <div className="flex flex-col items-center gap-3 text-center">
-          <img src="/logo.svg" alt="" className="size-24" />
-          <h1 className="font-marca text-3xl italic text-marca">Euforia</h1>
+          <h1>
+            <img src="/logo-completa.webp" alt="Euforia Confeitaria" width="600" height="444" className="mx-auto h-auto w-64" />
+          </h1>
           <p className="text-suave">Entre para ver suas receitas, produção e estoque.</p>
         </div>
         <Entrada rotulo="E-mail" type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} />

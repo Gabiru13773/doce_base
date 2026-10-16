@@ -74,7 +74,7 @@ export default function InicioPage() {
               <a.icone className="size-6" aria-hidden />
             </span>
             <span className="leading-tight font-semibold">{a.titulo}</span>
-            <span className="truncate text-sm text-suave">{a.descricao}</span>
+            <span className="line-clamp-2 text-sm text-suave">{a.descricao}</span>
           </Link>
         ))}
       </nav>
