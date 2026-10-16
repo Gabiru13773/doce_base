@@ -9,6 +9,12 @@ Você vai usar 3 serviços gratuitos:
 - **GitHub**: guarda o código do app (você já tem: `gabiru13773/doce_base`).
 - **Vercel**: coloca o app no ar, com um endereço próprio.
 
+> **Situação atual (out/2026):** as etapas 1 e 2 já foram feitas. O projeto
+> `confeitaria-euforia` existe no Supabase (região São Paulo), com as tabelas
+> dos módulos 0–2 criadas e protegidas. Endereço: `https://xmlmwjwdxvnwsueinfwc.supabase.co`.
+> Falta: etapa 3 (criar o login e bloquear cadastros) e etapa 4 (Vercel).
+> As próximas migrations também precisam ser rodadas nesse projeto.
+
 > **Dica:** faça tudo pelo computador. No celular, só a etapa 5 (instalar o app).
 
 > **Sobre os nomes dos menus:** esses sites mudam o visual de vez em quando.
