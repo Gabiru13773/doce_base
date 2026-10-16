@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { Cartao } from '../../components/ui'
 import { modoLocal } from '../../lib/supabase'
 import { useInsumos } from '../insumos/api'
+import { useReceitas } from '../receitas/api'
 
 function saudacao(hora: number) {
   if (hora >= 5 && hora < 12) return 'Bom dia'
@@ -25,7 +26,11 @@ export default function InicioPage() {
 
   const insumos = useInsumos()
   const qtdInsumos = insumos.data?.filter((i) => i.ativo !== false).length
-  const semInsumos = insumos.isSuccess && qtdInsumos === 0
+  const receitas = useReceitas()
+  const qtdReceitas = receitas.data?.length
+  // Primeiros passos somem só quando já houver insumos E receitas.
+  const mostrarPrimeirosPassos =
+    insumos.isSuccess && receitas.isSuccess && (qtdInsumos === 0 || qtdReceitas === 0)
 
   const descricaoInsumos =
     qtdInsumos === undefined
@@ -34,10 +39,17 @@ export default function InicioPage() {
         ? 'Nenhum cadastrado ainda'
         : `${qtdInsumos} ${qtdInsumos === 1 ? 'cadastrado' : 'cadastrados'}`
 
+  const descricaoReceitas =
+    qtdReceitas === undefined
+      ? 'Custo e preço'
+      : qtdReceitas === 0
+        ? 'Nenhuma ainda'
+        : `${qtdReceitas} ${qtdReceitas === 1 ? 'cadastrada' : 'cadastradas'}`
+
   const atalhos: Atalho[] = [
     { para: '/producao', titulo: 'Registrar produção', descricao: 'O que saiu do forno', icone: CookingPot, emBreve: true },
     { para: '/insumos', titulo: 'Insumos', descricao: descricaoInsumos, icone: Package },
-    { para: '/receitas', titulo: 'Receitas', descricao: 'Custo e preço', icone: ChefHat, emBreve: true },
+    { para: '/receitas', titulo: 'Receitas', descricao: descricaoReceitas, icone: ChefHat },
     { para: '/config/precos', titulo: 'Preços e margens', descricao: 'Hora, taxas e lucro', icone: Calculator },
   ]
 
@@ -79,14 +91,14 @@ export default function InicioPage() {
         ))}
       </nav>
 
-      {semInsumos && (
+      {mostrarPrimeirosPassos && (
         <Cartao>
           <h2 className="mb-1 text-lg font-bold">Primeiros passos</h2>
           <p className="mb-3 text-sm text-suave">Três passos para o app calcular seus preços.</p>
           <ol className="flex flex-col gap-2">
             <Passo numero={1} para="/config/precos" texto="Ajuste seus preços e margens" />
             <Passo numero={2} para="/insumos" texto="Cadastre seus insumos" />
-            <Passo numero={3} para="/receitas" texto="Em breve: cadastre suas receitas" apagado />
+            <Passo numero={3} para="/receitas/nova" texto="Cadastre suas receitas" />
           </ol>
         </Cartao>
       )}
