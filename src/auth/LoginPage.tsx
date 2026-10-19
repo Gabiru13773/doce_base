@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { Botao, Entrada } from '../components/ui'
-import { supabase } from '../lib/supabase'
+import { enderecoSupabase, supabase } from '../lib/supabase'
 
 export default function LoginPage() {
   const [email, setEmail] = useState('')
@@ -13,10 +13,13 @@ export default function LoginPage() {
     if (!supabase) return
     setErro('')
     setEnviando(true)
-    const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password: senha })
-    setEnviando(false)
-    if (error) {
-      setErro(/Invalid login/i.test(error.message) ? 'E-mail ou senha incorretos.' : 'Não foi possível entrar. Verifique a internet.')
+    try {
+      const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password: senha })
+      if (error) setErro(mensagemErro(error.message))
+    } catch (e) {
+      setErro(mensagemErro(e instanceof Error ? e.message : String(e)))
+    } finally {
+      setEnviando(false)
     }
   }
 
@@ -45,4 +48,13 @@ export default function LoginPage() {
       </form>
     </main>
   )
+}
+
+function mensagemErro(msg: string) {
+  if (/Invalid login/i.test(msg)) return 'E-mail ou senha incorretos.'
+  if (/Email not confirmed/i.test(msg)) return 'E-mail ainda não confirmado.'
+  if (/Invalid API key|No API key/i.test(msg)) return 'Chave do Supabase inválida na configuração do app (VITE_SUPABASE_ANON_KEY).'
+  if (!navigator.onLine) return 'Sem internet. Verifique a conexão e tente de novo.'
+  // Conexão falhou com internet funcionando: quase sempre é o endereço do Supabase errado.
+  return `Não foi possível falar com o servidor (${enderecoSupabase || 'endereço vazio'}). Detalhe: ${msg}`
 }
