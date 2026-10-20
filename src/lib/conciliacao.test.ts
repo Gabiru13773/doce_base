@@ -82,6 +82,9 @@ describe('textos', () => {
   it('capitaliza só textos em maiúsculas', () => {
     expect(capitalizar('PIX ENVIADO JOAO DA SILVA')).toBe('PIX Enviado Joao da Silva')
     expect(capitalizar('Compra no débito')).toBe('Compra no débito')
+    expect(capitalizar('PIX ENVIADO CASA DAS FESTAS')).toBe('PIX Enviado Casa das Festas')
+    expect(capitalizar('PAGAMENTO DAS')).toBe('Pagamento DAS')
+    expect(capitalizar('DAS MEI OUTUBRO')).toBe('DAS MEI Outubro')
   })
 
   it('limpa CPF mascarado e dados bancários', () => {

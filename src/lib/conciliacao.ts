@@ -107,16 +107,18 @@ function semelhanca(fonte: string[], alvo: string[]): number {
 }
 
 const PALAVRAS_MINUSCULAS = new Set(['de', 'da', 'do', 'das', 'dos', 'e', 'em', 'no', 'na', 'para', 'por', 'com', 'a', 'o'])
-const SIGLAS = new Set(['PIX', 'TED', 'DOC', 'TEF', 'DAS', 'MEI', 'IOF', 'CPF', 'CNPJ', 'SA', 'S.A.', 'BB', 'CEF', 'DARF', 'GPS', 'FGTS', 'INSS', 'IPVA', 'IPTU', 'ME', 'EPP'])
+const SIGLAS = new Set(['PIX', 'TED', 'DOC', 'TEF', 'MEI', 'IOF', 'CPF', 'CNPJ', 'SA', 'S.A.', 'BB', 'CEF', 'DARF', 'GPS', 'FGTS', 'INSS', 'IPVA', 'IPTU', 'ME', 'EPP'])
 
 /** "PIX ENVIADO JOSE DA SILVA" → "PIX Enviado Jose da Silva" (só mexe em textos todos em maiúsculas). */
 export function capitalizar(t: string): string {
   if (/[a-zà-ÿ]/.test(t)) return t
-  return t
-    .toLowerCase()
-    .split(' ')
+  const palavras = t.toLowerCase().split(' ')
+  return palavras
     .map((p, i) => {
       if (SIGLAS.has(p.toUpperCase())) return p.toUpperCase()
+      // "das" é a guia do Simples (PAGAMENTO DAS, DAS MEI) ou só a palavra (CASA DAS FESTAS)
+      if (p === 'das' && (i === palavras.length - 1 || /^(mei|simples)$/.test(palavras[i + 1]) || /^(pagamento|pgto|pag|guia)$/.test(palavras[i - 1] ?? '')))
+        return 'DAS'
       if (i > 0 && PALAVRAS_MINUSCULAS.has(p)) return p
       return p.charAt(0).toUpperCase() + p.slice(1)
     })
