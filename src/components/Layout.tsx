@@ -31,7 +31,7 @@ const MENU_PRODUCAO: ItemMenu[] = [
   { para: '/producao', rotulo: 'Produzir', icone: CookingPot },
   { para: '/receitas', rotulo: 'Receitas', icone: ChefHat },
   { para: '/estoque', rotulo: 'Estoque', icone: Package },
-  { para: '/mais', rotulo: 'Mais', icone: Menu, tambem: ['/produtos'] },
+  { para: '/mais', rotulo: 'Mais', icone: Menu, tambem: ['/produtos', '/insumos', '/config'] },
 ]
 
 // No computador sobra espaço: o menu lateral mostra também os Produtos (no celular ficam em "Mais").

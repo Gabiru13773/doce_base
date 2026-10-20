@@ -87,6 +87,7 @@ export function Entrada({
         <input
           id={id}
           className={`${classeEntrada} ${prefixo ? 'pl-11' : ''} ${sufixo ? 'pr-14' : ''} ${erro ? 'border-perigo' : ''}`}
+          aria-invalid={erro ? true : undefined}
           {...props}
         />
         {sufixo && <span className="pointer-events-none absolute right-4 text-suave">{sufixo}</span>}

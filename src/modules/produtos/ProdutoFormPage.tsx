@@ -396,6 +396,8 @@ function Formulario({ original, dados, copia = false, contexto, config, receitas
     e.preventDefault()
     setTentou(true)
     if (temErro) {
+      // Depois de trocar de variação/abrir "Mais opções", leva o foco ao primeiro campo com erro.
+      setTimeout(() => document.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus({ preventScroll: true }), 400)
       if (erros.nome) {
         window.scrollTo({ top: 0, behavior: 'smooth' })
       } else {
@@ -835,7 +837,15 @@ function CartaoPreco({
               {moeda(preco.pvFinal)}
             </p>
             <p className="mt-2 text-tinta">
-              Você lucra <strong>{moeda(preco.lucroPorUnidade)}</strong> ({pct(preco.pctMargemReal)})
+              {preco.lucroPorUnidade < 0 ? (
+                <span className="font-semibold text-perigo">
+                  Prejuízo de {moeda(-preco.lucroPorUnidade)} por unidade
+                </span>
+              ) : (
+                <>
+                  Você lucra <strong>{moeda(preco.lucroPorUnidade)}</strong> ({pct(preco.pctMargemReal)})
+                </>
+              )}
             </p>
             {preco.manual && <p className="mt-1 text-sm text-suave">Preço digitado por você</p>}
           </>
@@ -868,7 +878,15 @@ function CartaoPreco({
             <Linha rotulo="Custo da unidade" valor={moeda(preco.custoPorUnidade)} forte />
             <Linha rotulo="Preço sugerido" valor={preco.pvSugerido === null ? '—' : moeda(preco.pvSugerido)} />
             {preco.pvFinal !== null && (
-              <Linha rotulo="Lucro" valor={`${moeda(preco.lucroPorUnidade)} (${pct(preco.pctMargemReal)})`} forte />
+              <Linha
+                rotulo={preco.lucroPorUnidade < 0 ? 'Prejuízo' : 'Lucro'}
+                valor={
+                  preco.lucroPorUnidade < 0
+                    ? moeda(-preco.lucroPorUnidade)
+                    : `${moeda(preco.lucroPorUnidade)} (${pct(preco.pctMargemReal)})`
+                }
+                forte
+              />
             )}
           </dl>
           <p className="text-sm text-suave">
@@ -887,7 +905,9 @@ function CartaoPreco({
                 erro={erros.pvManual}
                 ajuda={
                   preco.manual
-                    ? `Com esse preço você lucra ${moeda(preco.lucroPorUnidade)} (${pct(preco.pctMargemReal)})`
+                    ? preco.lucroPorUnidade < 0
+                      ? `Com esse preço você tem prejuízo de ${moeda(-preco.lucroPorUnidade)}`
+                      : `Com esse preço você lucra ${moeda(preco.lucroPorUnidade)} (${pct(preco.pctMargemReal)})`
                     : 'Deixe vazio para usar o preço sugerido'
                 }
               />

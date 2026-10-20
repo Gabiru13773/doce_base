@@ -61,7 +61,7 @@ export default function ProdutosPage() {
             if (custo.problemas.length > 0) revisar = true
             return { variacao, preco: precificarVariacao(variacao, custo.custoDireto, config) }
           })
-        return { produto, variacoes, revisar, prejuizo: variacoes.some((v) => v.preco.abaixoDoCusto) }
+        return { produto, variacoes, revisar, prejuizo: variacoes.some((v) => perde(v.preco)) }
       })
   }, [produtos.data, contexto, config])
 
@@ -170,10 +170,15 @@ function Selo({ texto, tom }: { texto: string; tom: 'alerta' | 'perigo' }) {
   return <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold ${cor}`}>{texto}</span>
 }
 
+/** Preço que não cobre o custo, ou que depois de custos fixos e taxas dá prejuízo. */
+function perde(p: ResultadoPreco) {
+  return p.pvFinal !== null && (p.abaixoDoCusto || p.lucroPorUnidade < 0)
+}
+
 function Preco({ preco, grande }: { preco: ResultadoPreco; grande?: boolean }) {
   if (preco.pvFinal === null) return <span className="text-sm font-semibold text-alerta">sem preço</span>
   return (
-    <span className={grande ? 'text-lg font-bold text-marca' : `font-semibold ${preco.abaixoDoCusto ? 'text-perigo' : 'text-marca'}`}>
+    <span className={`${grande ? 'text-lg font-bold' : 'font-semibold'} ${perde(preco) ? 'text-perigo' : 'text-marca'}`}>
       {moeda(preco.pvFinal)}
     </span>
   )
