@@ -46,7 +46,12 @@ const MENU_FINANCEIRO: ItemMenu[] = [
   { para: '/financeiro/lancar', rotulo: 'Lançar', icone: PlusCircle },
   { para: '/financeiro/contas', rotulo: 'Contas', icone: ArrowLeftRight },
   { para: '/financeiro/relatorios', rotulo: 'Relatórios', icone: BarChart3 },
-  { para: '/financeiro/mais', rotulo: 'Mais', icone: Menu },
+  {
+    para: '/financeiro/mais',
+    rotulo: 'Mais',
+    icone: Menu,
+    tambem: ['/financeiro/extrato', '/financeiro/bancos', '/financeiro/categorias', '/financeiro/importar', '/financeiro/lancamentos'],
+  },
 ]
 
 export default function Layout() {
@@ -70,7 +75,7 @@ export default function Layout() {
               end={item.para === '/' || item.para === '/financeiro'}
               className={({ isActive }) =>
                 `flex min-h-12 items-center gap-3 rounded-xl px-3 font-medium ${
-                  isActive ? 'bg-marca-clara text-marca' : 'text-tinta hover:bg-creme'
+                  isActive || (financeiro && marcadoPorOutraTela(item)) ? 'bg-marca-clara text-marca' : 'text-tinta hover:bg-creme'
                 }`
               }
             >

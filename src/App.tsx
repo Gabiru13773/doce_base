@@ -16,7 +16,16 @@ const FichaTecnicaPage = lazy(() => import('./modules/receitas/FichaTecnicaPage'
 const ProdutosPage = lazy(() => import('./modules/produtos/ProdutosPage'))
 const ProdutoFormPage = lazy(() => import('./modules/produtos/ProdutoFormPage'))
 const EmBrevePage = lazy(() => import('./modules/embreve/EmBrevePage'))
-const FinanceiroInicio = lazy(() => import('./modules/financeiro/FinanceiroInicio'))
+const ResumoPage = lazy(() => import('./modules/financeiro/ResumoPage'))
+const LancamentoFormPage = lazy(() => import('./modules/financeiro/LancamentoFormPage'))
+const LancamentosPage = lazy(() => import('./modules/financeiro/LancamentosPage'))
+const ContasBancariasPage = lazy(() => import('./modules/financeiro/ContasBancariasPage'))
+const ContaBancariaFormPage = lazy(() => import('./modules/financeiro/ContaBancariaFormPage'))
+const CategoriasPage = lazy(() => import('./modules/financeiro/CategoriasPage'))
+const FinMaisPage = lazy(() => import('./modules/financeiro/FinMaisPage'))
+const TitulosPage = lazy(() => import('./modules/financeiro/titulos/TitulosPage'))
+const TituloFormPage = lazy(() => import('./modules/financeiro/titulos/TituloFormPage'))
+const ImportarOfxPage = lazy(() => import('./modules/financeiro/importar/ImportarOfxPage'))
 
 export default function App() {
   const { carregando, usuario } = useAuth()
@@ -74,7 +83,23 @@ export default function App() {
             </EmBrevePage>
           }
         />
-        <Route path="financeiro" element={<FinanceiroInicio />} />
+        <Route path="financeiro" element={<ResumoPage />} />
+        <Route path="financeiro/lancar" element={<LancamentoFormPage />} />
+        <Route path="financeiro/lancamentos/:id" element={<LancamentoFormPage />} />
+        <Route path="financeiro/extrato" element={<LancamentosPage />} />
+        <Route path="financeiro/contas" element={<TitulosPage />} />
+        <Route path="financeiro/contas/nova" element={<TituloFormPage />} />
+        <Route path="financeiro/contas/:id" element={<TituloFormPage />} />
+        <Route path="financeiro/importar" element={<ImportarOfxPage />} />
+        <Route path="financeiro/bancos" element={<ContasBancariasPage />} />
+        <Route path="financeiro/bancos/nova" element={<ContaBancariaFormPage />} />
+        <Route path="financeiro/bancos/:id" element={<ContaBancariaFormPage />} />
+        <Route path="financeiro/categorias" element={<CategoriasPage />} />
+        <Route path="financeiro/mais" element={<FinMaisPage />} />
+        <Route
+          path="financeiro/relatorios"
+          element={<EmBrevePage titulo="Relatórios" itens={['Fluxo de caixa e DRE do mês — em breve']} />}
+        />
         <Route
           path="financeiro/*"
           element={

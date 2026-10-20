@@ -208,7 +208,14 @@ export function useSalvarTitulos() {
 export function useRemoverTitulo() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (id: string) => db.remover('fin_titulos', id),
+    mutationFn: async (id: string) => {
+      await db.remover('fin_titulos', id)
+      // No Supabase o vínculo some sozinho (on delete set null); no modo local fazemos igual.
+      if (modoLocal) {
+        const ligados = await db.listar<Lancamento>('fin_lancamentos', { titulo_id: id })
+        await db.salvarVarios<Lancamento>('fin_lancamentos', ligados.map((l) => ({ ...l, titulo_id: null })))
+      }
+    },
     onSuccess: () => invalidar(qc, 'titulos', 'lancamentos'),
   })
 }
