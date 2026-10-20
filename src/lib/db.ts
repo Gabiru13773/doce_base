@@ -174,6 +174,7 @@ export const db: Banco = supabase ? bancoSupabase(supabase) : bancoLocal
 // Mensagens para restrições com nome conhecido (ver supabase/migrations).
 const RESTRICOES: Record<string, string> = {
   pct_validos: 'Custos fixos + taxas + margem precisam somar menos de 100%.',
+  produtos_variacoes_formato: 'Confira as variações: cada uma precisa de nome, e os ajustes de % precisam somar menos de 100%.',
 }
 
 function erroDoBanco(error: Pick<PostgrestError, 'message' | 'code'> & { details?: string | null }): Error {
