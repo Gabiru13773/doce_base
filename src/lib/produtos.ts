@@ -65,7 +65,9 @@ export function precificarVariacao(v: VariacaoCalculo, custoDireto: number, conf
 export function baixaVariacao(v: Pick<VariacaoCalculo, 'itens'>, quantidade: number) {
   const receitas = new Map<string, number>()
   const insumos = new Map<string, number>()
+  if (!(quantidade > 0)) return { receitas, insumos }
   for (const item of v.itens) {
+    if (!(item.quantidade > 0)) continue
     const alvo = item.tipo === 'receita' ? receitas : insumos
     alvo.set(item.id, (alvo.get(item.id) ?? 0) + item.quantidade * quantidade)
   }

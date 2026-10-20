@@ -30,6 +30,7 @@ import {
   type UnidadeRendimento,
 } from '../../lib/receitas'
 import type { Insumo } from '../insumos/api'
+import { useProdutos } from '../produtos/api'
 import {
   CATEGORIAS_RECEITA,
   SUGESTOES_NOME_UNIDADE,
@@ -485,7 +486,13 @@ function AbaReceita({
   const minutos = opcional(c.tempoPreparo) ?? 0
   // Trocar g ↔ un ↔ ml numa receita base já usada muda o sentido das quantidades nas outras.
   const salva = receitaAtualId ? receitasAtivas.find((r) => r.id === receitaAtualId) : undefined
-  const usos = salva ? usadaEm(salva.id, receitasAtivas) : []
+  const { data: produtos } = useProdutos()
+  const usos = salva
+    ? [
+        ...usadaEm(salva.id, receitasAtivas),
+        ...(produtos ?? []).filter((p) => p.variacoes.some((v) => v.itens.some((i) => i.tipo === 'receita' && i.id === salva.id))),
+      ]
+    : []
   const mudouFamilia = !!salva && usos.length > 0 && unidadeBaseReceita(salva) !== unidadeBaseReceita({ rendimento_unidade: c.rendUnidade })
   const ajudaTempo =
     config.valorHora > 0
@@ -531,7 +538,7 @@ function AbaReceita({
           <p role="alert" className="rounded-xl bg-alerta-claro p-3 text-sm font-medium text-alerta">
             Atenção: esta receita é usada em {usos.map((u) => u.nome).join(', ')}. Mudar de{' '}
             {unidadeBaseReceita(salva!) === 'un' ? 'unidades' : unidadeBaseReceita(salva!) === 'g' ? 'peso' : 'volume'} para outro tipo
-            de medida muda as quantidades lá. Confira essas receitas depois de salvar.
+            de medida muda as quantidades lá. Confira esses cadastros depois de salvar.
           </p>
         )}
 

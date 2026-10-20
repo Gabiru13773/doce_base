@@ -13,6 +13,8 @@ const MaisPage = lazy(() => import('./modules/mais/MaisPage'))
 const ReceitasPage = lazy(() => import('./modules/receitas/ReceitasPage'))
 const ReceitaFormPage = lazy(() => import('./modules/receitas/ReceitaFormPage'))
 const FichaTecnicaPage = lazy(() => import('./modules/receitas/FichaTecnicaPage'))
+const ProdutosPage = lazy(() => import('./modules/produtos/ProdutosPage'))
+const ProdutoFormPage = lazy(() => import('./modules/produtos/ProdutoFormPage'))
 const EmBrevePage = lazy(() => import('./modules/embreve/EmBrevePage'))
 const FinanceiroInicio = lazy(() => import('./modules/financeiro/FinanceiroInicio'))
 
@@ -53,6 +55,9 @@ export default function App() {
         <Route path="receitas/nova" element={<ReceitaFormPage />} />
         <Route path="receitas/:id" element={<ReceitaFormPage />} />
         <Route path="receitas/:id/ficha" element={<FichaTecnicaPage />} />
+        <Route path="produtos" element={<ProdutosPage />} />
+        <Route path="produtos/novo" element={<ProdutoFormPage />} />
+        <Route path="produtos/:id" element={<ProdutoFormPage />} />
         <Route
           path="estoque"
           element={

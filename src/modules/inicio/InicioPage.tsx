@@ -1,8 +1,9 @@
-import { Calculator, ChefHat, ChevronRight, CloudOff, CookingPot, Package, type LucideIcon } from 'lucide-react'
+import { Calculator, ChefHat, ChevronRight, CloudOff, CookingPot, Gift, Package, type LucideIcon } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { Cartao } from '../../components/ui'
 import { modoLocal } from '../../lib/supabase'
 import { useInsumos } from '../insumos/api'
+import { useProdutos } from '../produtos/api'
 import { useReceitas } from '../receitas/api'
 
 function saudacao(hora: number) {
@@ -28,9 +29,14 @@ export default function InicioPage() {
   const qtdInsumos = insumos.data?.filter((i) => i.ativo !== false).length
   const receitas = useReceitas()
   const qtdReceitas = receitas.data?.length
-  // Primeiros passos somem só quando já houver insumos E receitas.
+  const produtos = useProdutos()
+  const qtdProdutos = produtos.data?.length
+  // Primeiros passos somem só quando já houver insumos, receitas E produtos.
   const mostrarPrimeirosPassos =
-    insumos.isSuccess && receitas.isSuccess && (qtdInsumos === 0 || qtdReceitas === 0)
+    insumos.isSuccess &&
+    receitas.isSuccess &&
+    produtos.isSuccess &&
+    (qtdInsumos === 0 || qtdReceitas === 0 || qtdProdutos === 0)
 
   const descricaoInsumos =
     qtdInsumos === undefined
@@ -46,10 +52,18 @@ export default function InicioPage() {
         ? 'Nenhuma ainda'
         : `${qtdReceitas} ${qtdReceitas === 1 ? 'cadastrada' : 'cadastradas'}`
 
+  const descricaoProdutos =
+    qtdProdutos === undefined
+      ? 'Com embalagem e preço'
+      : qtdProdutos === 0
+        ? 'Nenhum ainda'
+        : `${qtdProdutos} ${qtdProdutos === 1 ? 'cadastrado' : 'cadastrados'}`
+
   const atalhos: Atalho[] = [
     { para: '/producao', titulo: 'Registrar produção', descricao: 'O que saiu do forno', icone: CookingPot, emBreve: true },
     { para: '/insumos', titulo: 'Insumos', descricao: descricaoInsumos, icone: Package },
     { para: '/receitas', titulo: 'Receitas', descricao: descricaoReceitas, icone: ChefHat },
+    { para: '/produtos', titulo: 'Produtos', descricao: descricaoProdutos, icone: Gift },
     { para: '/config/precos', titulo: 'Preços e margens', descricao: 'Hora, taxas e lucro', icone: Calculator },
   ]
 
@@ -70,7 +84,7 @@ export default function InicioPage() {
         </div>
       )}
 
-      <nav aria-label="Atalhos" className="grid grid-cols-2 gap-3">
+      <nav aria-label="Atalhos" className="grid grid-cols-2 gap-3 [&>a:last-child:nth-child(odd)]:col-span-2">
         {atalhos.map((a) => (
           <Link
             key={a.para}
@@ -94,11 +108,17 @@ export default function InicioPage() {
       {mostrarPrimeirosPassos && (
         <Cartao>
           <h2 className="mb-1 text-lg font-bold">Primeiros passos</h2>
-          <p className="mb-3 text-sm text-suave">Três passos para o app calcular seus preços.</p>
+          <p className="mb-3 text-sm text-suave">Quatro passos para o app calcular seus preços.</p>
           <ol className="flex flex-col gap-2">
             <Passo numero={1} para="/config/precos" texto="Ajuste seus preços e margens" />
-            <Passo numero={2} para="/insumos" texto="Cadastre seus insumos" />
-            <Passo numero={3} para="/receitas/nova" texto="Cadastre suas receitas" />
+            <Passo numero={2} para="/insumos" texto="Cadastre seus insumos" apagado={!!qtdInsumos} />
+            <Passo numero={3} para="/receitas/nova" texto="Cadastre suas receitas" apagado={!!qtdReceitas} />
+            <Passo
+              numero={4}
+              para="/produtos/novo"
+              texto="Cadastre seus produtos (receita + embalagem)"
+              apagado={!!qtdProdutos}
+            />
           </ol>
         </Cartao>
       )}

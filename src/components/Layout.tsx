@@ -3,6 +3,7 @@ import {
   BarChart3,
   ChefHat,
   CookingPot,
+  Gift,
   Home,
   Menu,
   Package,
@@ -21,6 +22,8 @@ interface ItemMenu {
   para: string
   rotulo: string
   icone: LucideIcon
+  /** Outras telas em que o item fica marcado (ex.: "Mais" no celular, para telas abertas a partir dele). */
+  tambem?: string[]
 }
 
 const MENU_PRODUCAO: ItemMenu[] = [
@@ -28,7 +31,14 @@ const MENU_PRODUCAO: ItemMenu[] = [
   { para: '/producao', rotulo: 'Produzir', icone: CookingPot },
   { para: '/receitas', rotulo: 'Receitas', icone: ChefHat },
   { para: '/estoque', rotulo: 'Estoque', icone: Package },
-  { para: '/mais', rotulo: 'Mais', icone: Menu },
+  { para: '/mais', rotulo: 'Mais', icone: Menu, tambem: ['/produtos'] },
+]
+
+// No computador sobra espaço: o menu lateral mostra também os Produtos (no celular ficam em "Mais").
+const MENU_PRODUCAO_LATERAL: ItemMenu[] = [
+  ...MENU_PRODUCAO.slice(0, 3),
+  { para: '/produtos', rotulo: 'Produtos', icone: Gift },
+  ...MENU_PRODUCAO.slice(3),
 ]
 
 const MENU_FINANCEIRO: ItemMenu[] = [
@@ -43,6 +53,8 @@ export default function Layout() {
   const { pathname } = useLocation()
   const financeiro = pathname.startsWith('/financeiro')
   const menu = financeiro ? MENU_FINANCEIRO : MENU_PRODUCAO
+  const menuLateral = financeiro ? MENU_FINANCEIRO : MENU_PRODUCAO_LATERAL
+  const marcadoPorOutraTela = (item: ItemMenu) => !!item.tambem?.some((p) => pathname === p || pathname.startsWith(`${p}/`))
 
   return (
     <div className="min-h-dvh md:pl-60 print:pl-0">
@@ -51,7 +63,7 @@ export default function Layout() {
         <Marca />
         <TrocaArea financeiro={financeiro} />
         <nav className="flex flex-col gap-1" aria-label="Menu principal">
-          {menu.map((item) => (
+          {menuLateral.map((item) => (
             <NavLink
               key={item.para}
               to={item.para}
@@ -92,12 +104,14 @@ export default function Layout() {
             to={item.para}
             end={item.para === '/' || item.para === '/financeiro'}
             className={({ isActive }) =>
-              `flex h-[4.5rem] flex-col items-center justify-center gap-1 text-xs font-medium ${isActive ? 'text-marca' : 'text-suave'}`
+              `flex h-[4.5rem] flex-col items-center justify-center gap-1 text-xs font-medium ${isActive || marcadoPorOutraTela(item) ? 'text-marca' : 'text-suave'}`
             }
           >
             {({ isActive }) => (
               <>
-                <span className={`flex h-8 w-14 items-center justify-center rounded-full ${isActive ? 'bg-marca-clara' : ''}`}>
+                <span
+                  className={`flex h-8 w-14 items-center justify-center rounded-full ${isActive || marcadoPorOutraTela(item) ? 'bg-marca-clara' : ''}`}
+                >
                   <item.icone className="size-6" aria-hidden />
                 </span>
                 {item.rotulo}

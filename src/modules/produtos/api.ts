@@ -37,7 +37,11 @@ export type DadosProduto = Omit<Produto, 'id' | 'ativo' | 'criado_em' | 'atualiz
 
 const CHAVE = ['produtos']
 
-const num = (v: unknown) => (v === null || v === undefined || v === '' ? null : Number(v))
+const num = (v: unknown) => {
+  if (v === null || v === undefined || v === '') return null
+  const n = Number(v)
+  return Number.isFinite(n) ? n : null
+}
 
 function normalizarItens(itens: unknown): ItemReceita[] {
   return (Array.isArray(itens) ? itens : [])
@@ -79,6 +83,12 @@ function invalidar(qc: ReturnType<typeof useQueryClient>) {
 
 const casas = (v: number | null, n: number) => (v === null ? null : Math.round(v * 10 ** n) / 10 ** n)
 
+/** Preço manual com centavos; vazio (null) se não for maior que zero depois de arredondar. */
+export function precoManual(v: number | null): number | null {
+  const r = v === null ? 0 : Math.round(v * 100) / 100
+  return r > 0 ? r : null
+}
+
 /** Limpa uma variação antes de gravar (mesmas casas decimais do banco das receitas). */
 function limparVariacao(v: Variacao): Variacao {
   return {
@@ -89,7 +99,7 @@ function limparVariacao(v: Variacao): Variacao {
     pct_custos_fixos: casas(v.pct_custos_fixos, 2),
     pct_taxas: casas(v.pct_taxas, 2),
     pct_margem: casas(v.pct_margem, 2),
-    pv_manual: v.pv_manual !== null && v.pv_manual > 0 ? Math.round(v.pv_manual * 100) / 100 : null,
+    pv_manual: precoManual(v.pv_manual),
     ativo: v.ativo !== false,
   }
 }

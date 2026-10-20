@@ -5,15 +5,32 @@ import { Busca, Pilulas, Vazio } from '../../../components/ui'
 import { custoAmigavel } from '../../../lib/custos'
 import { moeda } from '../../../lib/format'
 import { calcularCusto, criariaCiclo, rendimentoBase, textoRendimento, unidadeVenda, type Contexto, type ItemReceita } from '../../../lib/receitas'
-import type { Insumo } from '../../insumos/api'
+import { CATEGORIAS, type CategoriaInsumo, type Insumo } from '../../insumos/api'
 import type { Receita } from '../api'
 
 type Aba = 'insumo' | 'receita'
 
-const ABAS: { valor: Aba; rotulo: string }[] = [
-  { valor: 'insumo', rotulo: 'Insumos' },
-  { valor: 'receita', rotulo: 'Receitas base' },
-]
+/** Textos da janela; o padrão é o das receitas ("Adicionar ingrediente", "Receitas base"). */
+export interface TextosSeletor {
+  titulo: string
+  abaInsumos: string
+  abaReceitas: string
+  buscaInsumo: string
+  buscaReceita: string
+  vazioReceitas: { titulo: string; texto: string; link?: { para: string; rotulo: string } }
+}
+
+const TEXTOS_PADRAO: TextosSeletor = {
+  titulo: 'Adicionar ingrediente',
+  abaInsumos: 'Insumos',
+  abaReceitas: 'Receitas base',
+  buscaInsumo: 'Buscar insumo',
+  buscaReceita: 'Buscar receita base',
+  vazioReceitas: {
+    titulo: 'Nenhuma receita base disponível',
+    texto: 'Receitas como massa, recheio ou calda aparecem aqui depois de cadastradas, para usar dentro de outras.',
+  },
+}
 
 /** Minúsculas e sem acentos, para a busca achar "acucar" em "Açúcar". */
 function simplificar(texto: string | null | undefined): string {
@@ -43,6 +60,10 @@ export function SeletorItem({
   receitaAtualId,
   contexto,
   jaUsados,
+  textos,
+  abaInicial,
+  categoriasPrimeiro,
+  ordemAbas = 'insumo',
 }: {
   aberto: boolean
   aoFechar: () => void
@@ -52,8 +73,26 @@ export function SeletorItem({
   receitaAtualId: string | null
   contexto: Contexto | null
   jaUsados: ItemReceita[]
+  /** Troca alguns textos (ex.: no cadastro de produtos). */
+  textos?: Partial<TextosSeletor>
+  /** Aba mostrada sempre que a janela abre (sem isso, fica a última usada). */
+  abaInicial?: Aba
+  /** Insumos destas categorias aparecem primeiro, com o nome da categoria (ex.: embalagens). */
+  categoriasPrimeiro?: CategoriaInsumo[]
+  /** Qual aba aparece primeiro nas pílulas. */
+  ordemAbas?: Aba
 }) {
-  const [aba, setAba] = useState<Aba>('insumo')
+  const t = { ...TEXTOS_PADRAO, ...textos }
+  const abas: { valor: Aba; rotulo: string }[] = [
+    { valor: 'insumo', rotulo: t.abaInsumos },
+    { valor: 'receita', rotulo: t.abaReceitas },
+  ]
+  if (ordemAbas === 'receita') abas.reverse()
+  const [aba, setAba] = useState<Aba>(abaInicial ?? 'insumo')
+  const abaInicialRef = useRef(abaInicial)
+  useEffect(() => {
+    abaInicialRef.current = abaInicial
+  })
   const [busca, setBusca] = useState('')
   const painel = useRef<HTMLDivElement>(null)
   // Guarda aoFechar mais recente sem refazer o efeito a cada render do pai.
@@ -67,6 +106,7 @@ export function SeletorItem({
   useEffect(() => {
     if (!aberto) return
     setBusca('')
+    if (abaInicialRef.current) setAba(abaInicialRef.current)
     const anterior = document.activeElement as HTMLElement | null
     const overflowAntes = document.body.style.overflow
     document.body.style.overflow = 'hidden'
@@ -88,14 +128,27 @@ export function SeletorItem({
 
   const usados = useMemo(() => new Set(jaUsados.map((i) => `${i.tipo}:${i.id}`)), [jaUsados])
 
-  const opcoesInsumo = useMemo<Opcao[]>(
-    () =>
-      insumos.map((i) => {
-        const c = custoAmigavel({ qtdCompra: Number(i.qtd_compra), unidadeCompra: i.unidade_compra, precoCompra: Number(i.preco_compra) })
-        return { tipo: 'insumo', id: i.id, nome: i.nome, detalhe: `${moeda(c.valor)}/${c.por}`, usado: usados.has(`insumo:${i.id}`) }
-      }),
-    [insumos, usados],
-  )
+  const opcoesInsumo = useMemo<Opcao[]>(() => {
+    const destaque = categoriasPrimeiro ?? []
+    const posicao = (i: Insumo) => {
+      const p = destaque.indexOf(i.categoria)
+      return p === -1 ? destaque.length : p
+    }
+    // sort é estável: dentro de cada grupo, continua a ordem alfabética.
+    const ordenados = destaque.length ? [...insumos].sort((a, b) => posicao(a) - posicao(b)) : insumos
+    return ordenados.map((i) => {
+      const c = custoAmigavel({ qtdCompra: Number(i.qtd_compra), unidadeCompra: i.unidade_compra, precoCompra: Number(i.preco_compra) })
+      const preco = `${moeda(c.valor)}/${c.por}`
+      const categoria = destaque.length ? CATEGORIAS.find((k) => k.valor === i.categoria)?.rotulo : undefined
+      return {
+        tipo: 'insumo',
+        id: i.id,
+        nome: i.nome,
+        detalhe: categoria ? `${categoria} · ${preco}` : preco,
+        usado: usados.has(`insumo:${i.id}`),
+      }
+    })
+  }, [insumos, usados, categoriasPrimeiro])
 
   // Só mostra receitas que podem entrar nesta sem criar ciclo (nem ela mesma).
   const opcoesReceita = useMemo<Opcao[]>(() => {
@@ -148,7 +201,7 @@ export function SeletorItem({
         <header className="flex flex-col gap-3 border-b border-borda bg-superficie px-4 pt-[max(0.75rem,env(safe-area-inset-top))] pb-3">
           <div className="flex items-center justify-between gap-3">
             <h2 id="seletor-item-titulo" className="text-xl font-bold">
-              Adicionar ingrediente
+              {t.titulo}
             </h2>
             <button
               type="button"
@@ -159,11 +212,11 @@ export function SeletorItem({
               Fechar
             </button>
           </div>
-          <Pilulas rotulo="O que adicionar" valor={aba} aoMudar={setAba} opcoes={ABAS} />
+          <Pilulas rotulo="O que adicionar" valor={aba} aoMudar={setAba} opcoes={abas} />
           <Busca
             valor={busca}
             aoMudar={setBusca}
-            placeholder={aba === 'insumo' ? 'Buscar insumo' : 'Buscar receita base'}
+            placeholder={aba === 'insumo' ? t.buscaInsumo : t.buscaReceita}
           />
         </header>
 
@@ -183,8 +236,18 @@ export function SeletorItem({
             />
           ) : aba === 'receita' && opcoesReceita.length === 0 ? (
             <Vazio
-              titulo="Nenhuma receita base disponível"
-              texto="Receitas como massa, recheio ou calda aparecem aqui depois de cadastradas, para usar dentro de outras."
+              titulo={t.vazioReceitas.titulo}
+              texto={t.vazioReceitas.texto}
+              acao={
+                t.vazioReceitas.link && (
+                  <Link
+                    to={t.vazioReceitas.link.para}
+                    className="inline-flex min-h-12 items-center justify-center rounded-2xl bg-marca px-5 font-semibold text-white active:bg-marca-escura"
+                  >
+                    {t.vazioReceitas.link.rotulo}
+                  </Link>
+                )
+              }
             />
           ) : lista.length === 0 ? (
             <Vazio titulo="Nada encontrado" texto="Tente outra palavra." />

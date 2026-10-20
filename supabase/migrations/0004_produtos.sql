@@ -14,7 +14,7 @@ create table if not exists public.produtos (
   categoria     text        not null default 'outro'
     check (categoria in ('bolo','fatia','doce','torta','kit','outro')),
   descricao     text,
-  variacoes     jsonb       not null default '[]'::jsonb,
+  variacoes     jsonb       not null,
   ativo         boolean     not null default true,
   criado_em     timestamptz not null default now(),
   atualizado_em timestamptz not null default now()
@@ -27,8 +27,8 @@ language sql
 immutable
 set search_path = ''
 as $$
-  select jsonb_typeof(variacoes) = 'array'
-     and jsonb_array_length(variacoes) > 0
+  select case when jsonb_typeof(variacoes) <> 'array' then false else
+     jsonb_array_length(variacoes) > 0
      and not exists (
        select 1
        from jsonb_array_elements(variacoes) as e(v)
@@ -38,13 +38,21 @@ as $$
                when jsonb_typeof(v -> 'nome') is distinct from 'string' or length(trim(v ->> 'nome')) = 0 then true
                when jsonb_typeof(v -> 'itens') is distinct from 'array' then true
                when not public.receita_itens_validos(v -> 'itens') then true
-               when jsonb_typeof(v -> 'pv_manual') = 'number' and (v -> 'pv_manual')::numeric <= 0 then true
-               when jsonb_typeof(v -> 'tempo_montagem_min') = 'number' and (v -> 'tempo_montagem_min')::numeric < 0 then true
+               -- tipos: % e preço são número ou vazio; tempo é número; ativo é verdadeiro/falso
+               when exists (select 1 from unnest(array['pct_custos_fixos','pct_taxas','pct_margem','pv_manual']) k
+                            where coalesce(jsonb_typeof(v -> k), 'null') not in ('number', 'null')) then true
+               when coalesce(jsonb_typeof(v -> 'tempo_montagem_min'), 'number') <> 'number' then true
+               when coalesce(jsonb_typeof(v -> 'ativo'), 'boolean') <> 'boolean' then true
+               -- daqui em diante os valores já são números (ou vazios), então converter é seguro
+               when exists (select 1 from unnest(array['pct_custos_fixos','pct_taxas','pct_margem','tempo_montagem_min']) k
+                            where (v ->> k)::numeric < 0) then true
+               when (v ->> 'pv_manual')::numeric <= 0 then true
                when coalesce((v ->> 'pct_custos_fixos')::numeric, 0) + coalesce((v ->> 'pct_taxas')::numeric, 0)
                     + coalesce((v ->> 'pct_margem')::numeric, 0) >= 100 then true
                else false
              end
      )
+  end
 $$;
 
 revoke all on function public.produto_variacoes_validas(jsonb) from public, anon;

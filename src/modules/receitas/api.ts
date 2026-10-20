@@ -161,7 +161,7 @@ export function useSalvarReceita() {
         rendimento_nome: dados.rendimento_unidade === 'un' ? dados.rendimento_nome?.trim() || null : null,
         itens: dados.itens.filter((i) => i.quantidade > 0).map((i) => ({ ...i, quantidade: Math.round(i.quantidade * 1000) / 1000 })),
         passos: dados.passos.map((p) => p.trim()).filter(Boolean),
-        pv_manual: dados.pv_manual !== null && dados.pv_manual > 0 ? Math.round(dados.pv_manual * 100) / 100 : null,
+        pv_manual: dados.pv_manual !== null && Math.round(dados.pv_manual * 100) > 0 ? Math.round(dados.pv_manual * 100) / 100 : null,
       }
       return db.salvar<Receita>('receitas', {
         ...limpo,
