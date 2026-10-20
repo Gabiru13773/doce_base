@@ -16,6 +16,8 @@ export interface Banco {
   buscar<T extends Registro>(tabela: string, id: string): Promise<T | null>
   /** Insere ou atualiza pelo id. Na atualização, só as colunas enviadas mudam. Devolve a linha completa. */
   salvar<T extends Registro>(tabela: string, registro: Omit<T, 'id'> & { id?: string }): Promise<T>
+  /** Insere ou atualiza várias linhas de uma vez: ou grava todas, ou nenhuma. */
+  salvarVarios<T extends Registro>(tabela: string, registros: (Omit<T, 'id'> & { id?: string })[]): Promise<T[]>
   remover(tabela: string, id: string): Promise<void>
 }
 
@@ -64,12 +66,20 @@ function ordenar<T>(linhas: T[], ordem?: Ordem): T[] {
 
 const bancoSupabase = (sb: NonNullable<typeof supabase>): Banco => ({
   async listar<T extends Registro>(tabela: string, filtro?: Record<string, string | number | boolean>, ordem?: Ordem) {
-    let q = sb.from(tabela).select('*')
-    for (const [k, v] of Object.entries(filtro ?? {})) q = q.eq(k, v)
-    if (ordem) q = q.order(ordem.coluna, { ascending: ordem.crescente ?? true })
-    const { data, error } = await q
-    if (error) throw erroDoBanco(error)
-    return ordenar((data ?? []) as T[], ordem)
+    // O Supabase devolve no máximo 1000 linhas por vez: busca em páginas até acabar.
+    const PAGINA = 1000
+    const todas: T[] = []
+    for (let inicio = 0; ; inicio += PAGINA) {
+      let q = sb.from(tabela).select('*')
+      for (const [k, v] of Object.entries(filtro ?? {})) q = q.eq(k, v)
+      // id como desempate deixa a paginação estável
+      q = (ordem ? q.order(ordem.coluna, { ascending: ordem.crescente ?? true }) : q).order('id')
+      const { data, error } = await q.range(inicio, inicio + PAGINA - 1)
+      if (error) throw erroDoBanco(error)
+      todas.push(...((data ?? []) as T[]))
+      if (!data || data.length < PAGINA) break
+    }
+    return ordenar(todas, ordem)
   },
   async buscar<T extends Registro>(tabela: string, id: string) {
     const { data, error } = await sb.from(tabela).select('*').eq('id', id).maybeSingle()
@@ -83,6 +93,14 @@ const bancoSupabase = (sb: NonNullable<typeof supabase>): Banco => ({
     const { data, error } = await sb.from(tabela).upsert(linha, { onConflict: 'id' }).select().single()
     if (error) throw erroDoBanco(error)
     return data as T
+  },
+  async salvarVarios<T extends Registro>(tabela: string, registros: (Omit<T, 'id'> & { id?: string })[]) {
+    if (registros.length === 0) return []
+    const linhas = registros.map((r) => ({ ...r, id: r.id ?? novoId() }))
+    // Uma requisição só (uma transação). defaultToNull: false → coluna ausente usa o default da tabela.
+    const { data, error } = await sb.from(tabela).upsert(linhas, { onConflict: 'id', defaultToNull: false }).select()
+    if (error) throw erroDoBanco(error)
+    return (data ?? []) as T[]
   },
   async remover(tabela: string, id: string) {
     const { error } = await sb.from(tabela).delete().eq('id', id)
@@ -159,6 +177,19 @@ const bancoLocal: Banco = {
     gravarTabela(tabela, linhas)
     return final
   },
+  async salvarVarios<T extends Registro>(tabela: string, registros: (Omit<T, 'id'> & { id?: string })[]) {
+    const linhas = lerTabela<T>(tabela)
+    const salvas = registros.map((registro) => {
+      const linha = { ...registro, id: registro.id ?? novoId() } as T
+      const i = linhas.findIndex((l) => l.id === linha.id)
+      const final = i >= 0 ? ({ ...linhas[i], ...linha } as T) : linha
+      if (i >= 0) linhas[i] = final
+      else linhas.push(final)
+      return final
+    })
+    gravarTabela(tabela, linhas)
+    return salvas
+  },
   async remover(tabela: string, id: string) {
     gravarTabela(
       tabela,
@@ -174,6 +205,9 @@ export const db: Banco = supabase ? bancoSupabase(supabase) : bancoLocal
 // Mensagens para restrições com nome conhecido (ver supabase/migrations).
 const RESTRICOES: Record<string, string> = {
   pct_validos: 'Custos fixos + taxas + margem precisam somar menos de 100%.',
+  fin_lancamentos_ofx_unico: 'Essa transação do extrato já foi importada nesta conta.',
+  fin_lancamentos_transferencia: 'Na transferência, escolha uma conta de destino diferente da de origem.',
+  fin_categorias_unica: 'Já existe uma categoria com esse nome neste grupo.',
   produtos_variacoes_formato: 'Confira as variações: o produto precisa de pelo menos uma, cada uma com nome, e os ajustes de % precisam somar menos de 100%.',
 }
 

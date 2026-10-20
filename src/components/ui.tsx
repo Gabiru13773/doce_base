@@ -68,7 +68,7 @@ export function Campo({
   )
 }
 
-const classeEntrada =
+export const classeEntrada =
   'min-h-12 w-full rounded-xl border border-borda bg-superficie px-4 text-base outline-none focus:border-marca focus:ring-2 focus:ring-marca/20'
 
 export function Entrada({
