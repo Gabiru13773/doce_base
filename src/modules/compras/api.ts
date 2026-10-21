@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useMemo, useSyncExternalStore } from 'react'
+import { useEffect, useMemo, useSyncExternalStore } from 'react'
 import { mesclarPendentes, type ItemCompraCalc, type PrecoHistorico } from '../../lib/compras'
 import { db, novoId } from '../../lib/db'
 import { modoLocal } from '../../lib/supabase'
@@ -196,9 +196,10 @@ interface Pendente {
 const CHAVE_FILA = 'euforia:compra-fila'
 
 function criarFila() {
+  // O Map nunca é alterado no lugar: cada mudança cria um novo (é o "retrato" que o React lê).
   let pendentes = new Map<string, Pendente>()
   let ultimoErro: string | null = null
-  let enviando = false
+  let envio: Promise<void> | null = null
   let timer: number | undefined
   const ouvintes = new Set<() => void>()
   let aoEnviar: ((compraId: string) => void) | null = null
@@ -210,47 +211,59 @@ function criarFila() {
     /* fila vazia */
   }
 
-  function gravar() {
+  function trocar(novo: Map<string, Pendente>) {
+    pendentes = novo
     try {
       localStorage.setItem(CHAVE_FILA, JSON.stringify([...pendentes.values()]))
     } catch {
       /* sem espaço: segue só na memória */
     }
-  }
-
-  function avisar() {
-    pendentes = new Map(pendentes) // retrato novo para o React perceber a mudança
     for (const o of ouvintes) o()
   }
 
-  async function enviar() {
-    if (enviando || pendentes.size === 0) return
-    enviando = true
-    try {
-      for (const [id, p] of [...pendentes]) {
-        try {
-          await db.salvar<ItemCompra>('compra_itens', { ...p.item, atualizado_em: new Date().toISOString() } as ItemCompra)
-          if (pendentes.get(id)?.versao === p.versao) pendentes.delete(id)
-          ultimoErro = null
-          aoEnviar?.(p.item.compra_id)
-        } catch (e) {
-          const msg = e instanceof Error ? e.message : String(e)
-          // Sem internet ou sessão vencida: tenta de novo depois. Outro erro não se resolve
-          // tentando de novo (ex.: o item foi apagado no outro celular): descarta e avisa.
-          if (/conexão|sessão/i.test(msg)) {
-            ultimoErro = msg
-            break
-          }
-          if (pendentes.get(id)?.versao === p.versao) pendentes.delete(id)
-          ultimoErro = `Uma marcação não foi salva: ${msg}`
+  /** Tira da fila, a não ser que tenha sido marcado de novo enquanto subia. */
+  function concluir(id: string, versao: number) {
+    if (pendentes.get(id)?.versao !== versao) return
+    const novo = new Map(pendentes)
+    novo.delete(id)
+    trocar(novo)
+  }
+
+  async function enviarTudo() {
+    for (const [id, p] of [...pendentes]) {
+      try {
+        await db.salvar<ItemCompra>('compra_itens', { ...p.item, atualizado_em: new Date().toISOString() } as ItemCompra)
+        ultimoErro = null
+        concluir(id, p.versao)
+        aoEnviar?.(p.item.compra_id)
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e)
+        // Sem internet ou sessão vencida: tenta de novo depois. Outro erro não se resolve
+        // tentando de novo (ex.: valor recusado pelo banco): descarta e avisa.
+        if (/conexão|sessão/i.test(msg)) {
+          ultimoErro = msg
+          break
         }
+        ultimoErro = `Uma marcação não foi salva (${p.item.nome}): ${msg}`
+        concluir(id, p.versao)
       }
-    } finally {
-      enviando = false
-      gravar()
-      avisar()
-      agendar()
     }
+  }
+
+  /** Envia o que está na fila. Se já está enviando, espera e envia de novo o que sobrou. */
+  async function enviar(): Promise<void> {
+    if (envio) {
+      await envio
+      if (pendentes.size === 0) return
+      if (envio) return envio
+    }
+    if (pendentes.size === 0) return
+    envio = enviarTudo().finally(() => {
+      envio = null
+      trocar(new Map(pendentes))
+      agendar()
+    })
+    return envio
   }
 
   function agendar() {
@@ -271,17 +284,16 @@ function criarFila() {
     retrato: () => pendentes,
     erro: () => ultimoErro,
     marcar(item: DadosItemCompra) {
-      pendentes.set(item.id, { item, versao: (pendentes.get(item.id)?.versao ?? 0) + 1 })
-      gravar()
-      avisar()
+      const novo = new Map(pendentes)
+      novo.set(item.id, { item, versao: (pendentes.get(item.id)?.versao ?? 0) + 1 })
+      trocar(novo)
       void enviar()
     },
     descartarCompra(compraId: string) {
-      for (const [id, p] of pendentes) if (p.item.compra_id === compraId) pendentes.delete(id)
-      gravar()
-      avisar()
+      trocar(new Map([...pendentes].filter(([, p]) => p.item.compra_id !== compraId)))
     },
     enviarAgora: () => enviar(),
+    aguardando: (compraId: string) => [...pendentes.values()].filter((p) => p.item.compra_id === compraId).length,
     definirAoEnviar(f: (compraId: string) => void) {
       aoEnviar = f
     },
@@ -296,7 +308,8 @@ const fila = criarFila()
  */
 export function useMarcarItem() {
   const qc = useQueryClient()
-  fila.definirAoEnviar((compraId) => void qc.invalidateQueries({ queryKey: chaveItens(compraId) }))
+  // Quando uma marcação sobe, busca a lista de novo (cancela uma busca antiga que esteja no meio).
+  useEffect(() => fila.definirAoEnviar((compraId) => void qc.invalidateQueries({ queryKey: chaveItens(compraId) })), [qc])
   return (item: DadosItemCompra) => {
     const { criado_em: _c, atualizado_em: _a, ...dados } = item as ItemCompra
     fila.marcar({ ...dados, preco_pago: dados.preco_pago == null ? null : centavos(dados.preco_pago) })
@@ -361,7 +374,9 @@ export function useFinalizarCompra() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async (d: DadosFinalizacao) => {
+      // As marcações deste aparelho precisam estar na nuvem antes (o total e os preços vêm delas).
       await fila.enviarAgora()
+      if (fila.aguardando(d.compra.id) > 0) throw new Error('Algumas marcações ainda não foram enviadas. Confira a internet e tente de novo.')
       const agora = new Date().toISOString()
       const local = d.compra.local?.trim() || null
       if (d.historico.length > 0) {
