@@ -33,7 +33,8 @@ export interface Embalagem {
   unidade: UnidadeCompra
 }
 
-const centavos = (n: number) => Math.round(n * 100) / 100
+/** Arredonda para centavos como o banco (numeric(12,2)): meio centavo sobe (1,005 → 1,01). */
+export const centavos = (n: number) => Math.round((n + Math.sign(n) * Number.EPSILON * Math.max(1, Math.abs(n))) * 100) / 100
 
 /** O item foi para o carrinho (pegou o pedido ou levou outro no lugar). */
 export const levou = (i: Pick<ItemCompraCalc, 'status'>) => i.status === 'comprado' || i.status === 'substituido'
@@ -107,7 +108,7 @@ export function faixaPrecos(historico: PrecoHistorico[], embalagem: Embalagem): 
     vezes++
     menor = Math.min(menor, valor)
     maior = Math.max(maior, valor)
-    if (!ultimo || p.registrado_em > ultimo.em) ultimo = { valor, em: p.registrado_em }
+    if (!ultimo || p.registrado_em >= ultimo.em) ultimo = { valor, em: p.registrado_em }
   }
   if (!ultimo) return null
   return { ultimo: ultimo.valor, menor, maior, vezes }
@@ -147,7 +148,8 @@ export function historicoDaCompra(itens: ItemCompraCalc[]): LinhaHistorico[] {
   const linhas: LinhaHistorico[] = []
   for (const i of itens) {
     const insumo = insumoComprado(i)
-    if (!insumo || i.preco_pago == null || !(i.embalagem_qtd > 0)) continue
+    // preço zero é brinde: não entra no histórico nem vira custo do insumo
+    if (!insumo || i.preco_pago == null || !(i.preco_pago > 0) || !(i.embalagem_qtd > 0)) continue
     linhas.push({
       insumo_id: insumo,
       qtd_compra: i.embalagem_qtd,
@@ -193,10 +195,13 @@ export function mudancasDeCusto(linhas: LinhaHistorico[], insumos: CustoAtual[])
   for (const [id, l] of porInsumo) {
     const ins = insumos.find((x) => x.id === id)
     if (!ins) continue
+    // Embalagem em outro tipo de unidade (ex.: insumo em unidades, comprado em kg): trocar o custo
+    // mudaria a unidade do insumo e estragaria as receitas que o usam. Fica só no histórico.
+    if (unidadeBase(ins.unidade_compra) !== unidadeBase(l.unidade_compra)) continue
     if (ins.preco_compra === l.preco_compra && ins.qtd_compra === l.qtd_compra && ins.unidade_compra === l.unidade_compra) continue
     const antesBase = custoPorUnidadeBase({ qtdCompra: ins.qtd_compra, unidadeCompra: ins.unidade_compra, precoCompra: ins.preco_compra })
     const depoisBase = porBase(l)
-    const comparavel = unidadeBase(ins.unidade_compra) === unidadeBase(l.unidade_compra) && antesBase > 0
+    const comparavel = antesBase > 0
     mudancas.push({
       insumo_id: id,
       nome: ins.nome,

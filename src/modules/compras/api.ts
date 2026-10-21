@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useMemo, useSyncExternalStore } from 'react'
-import { mesclarPendentes, type ItemCompraCalc, type PrecoHistorico } from '../../lib/compras'
+import { centavos, mesclarPendentes, type ItemCompraCalc, type PrecoHistorico } from '../../lib/compras'
 import { db, novoId } from '../../lib/db'
 import { modoLocal } from '../../lib/supabase'
 import type { UnidadeCompra } from '../../lib/unidades'
@@ -48,7 +48,6 @@ const chaveItens = (compraId: string) => ['compras', 'itens', compraId]
 
 // O Supabase devolve colunas "numeric" como texto.
 const num = (v: unknown) => (v === null || v === undefined || v === '' ? null : Number(v))
-const centavos = (n: number) => Math.round(n * 100) / 100
 
 function normalizarCompra(c: Compra): Compra {
   return { ...c, total: num(c.total) }
@@ -154,7 +153,16 @@ export function useItensCompra(compraId: string | undefined, aoVivo = false) {
   const pendentes = useSyncExternalStore(fila.assinar, fila.retrato)
   const itens = useMemo(() => {
     if (!consulta.data) return undefined
-    const daCompra = new Map([...pendentes].filter(([, p]) => p.item.compra_id === compraId).map(([id, p]) => [id, p.item]))
+    const doServidor = new Map(consulta.data.map((i) => [i.id, i]))
+    // A marcação pendente não tem as datas do banco: usa as do servidor (ou vazio, se o item é novo).
+    const daCompra = new Map(
+      [...pendentes]
+        .filter(([, p]) => p.item.compra_id === compraId)
+        .map(([id, p]): [string, ItemCompra] => [
+          id,
+          { criado_em: doServidor.get(id)?.criado_em ?? '', atualizado_em: doServidor.get(id)?.atualizado_em ?? '', ...p.item },
+        ]),
+    )
     return mesclarPendentes(consulta.data, daCompra).sort((a, b) => a.ordem - b.ordem)
   }, [consulta.data, pendentes, compraId])
   return { ...consulta, data: itens }
@@ -180,7 +188,10 @@ export function useSalvarItensCompra() {
 export function useRemoverItemCompra() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (item: Pick<ItemCompra, 'id' | 'compra_id'>) => db.remover('compra_itens', item.id),
+    mutationFn: async (item: Pick<ItemCompra, 'id' | 'compra_id'>) => {
+      fila.descartarItem(item.id) // senão a marcação guardada aqui recriaria o item
+      await db.remover('compra_itens', item.id)
+    },
     onSuccess: (_r, item) => qc.invalidateQueries({ queryKey: chaveItens(item.compra_id) }),
   })
 }
@@ -195,6 +206,24 @@ interface Pendente {
 
 const CHAVE_FILA = 'euforia:compra-fila'
 
+// Mensagens (já traduzidas em src/lib/db.ts) de erros em que o banco recusou o valor:
+// tentar de novo daria o mesmo erro.
+const ERRO_DEFINITIVO = /fora do permitido|formato inválido|campos obrigatórios|grande demais|comprido demais|não existe mais|Informe a quantidade|Escolha o (produto|motivo)/i
+
+function camposMarcacao(i: DadosItemCompra) {
+  return {
+    status: i.status,
+    qtd_comprada: i.qtd_comprada,
+    preco_pago: i.preco_pago,
+    motivo: i.motivo,
+    sub_insumo_id: i.sub_insumo_id,
+    sub_nome: i.sub_nome,
+    embalagem_qtd: i.embalagem_qtd,
+    embalagem_unidade: i.embalagem_unidade,
+    marcado_por: i.marcado_por,
+  }
+}
+
 function criarFila() {
   // O Map nunca é alterado no lugar: cada mudança cria um novo (é o "retrato" que o React lê).
   let pendentes = new Map<string, Pendente>()
@@ -202,7 +231,7 @@ function criarFila() {
   let envio: Promise<void> | null = null
   let timer: number | undefined
   const ouvintes = new Set<() => void>()
-  let aoEnviar: ((compraId: string) => void) | null = null
+  let aoEnviar: ((compraId: string, salvo: ItemCompra | null) => void) | null = null
 
   try {
     const salvo = JSON.parse(localStorage.getItem(CHAVE_FILA) ?? '[]') as Pendente[]
@@ -232,15 +261,21 @@ function criarFila() {
   async function enviarTudo() {
     for (const [id, p] of [...pendentes]) {
       try {
-        await db.salvar<ItemCompra>('compra_itens', { ...p.item, atualizado_em: new Date().toISOString() } as ItemCompra)
-        ultimoErro = null
+        const agora = new Date().toISOString()
+        // Só os campos da marcação: não desfaz o que o outro celular mudou no item (quantidade
+        // pedida, ordem…) e não recria um item que foi apagado lá.
+        let salvo = await db.atualizar<ItemCompra>('compra_itens', id, { ...camposMarcacao(p.item), atualizado_em: agora })
+        // Item fora da lista que ainda não existe na nuvem: cria inteiro.
+        if (!salvo && p.item.fora_da_lista) salvo = await db.salvar<ItemCompra>('compra_itens', { ...p.item, atualizado_em: agora } as ItemCompra)
+        if (!salvo) ultimoErro = `"${p.item.nome}" foi tirado da lista em outro aparelho; a marcação foi descartada.`
+        else ultimoErro = null
+        aoEnviar?.(p.item.compra_id, salvo)
         concluir(id, p.versao)
-        aoEnviar?.(p.item.compra_id)
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e)
-        // Sem internet ou sessão vencida: tenta de novo depois. Outro erro não se resolve
-        // tentando de novo (ex.: valor recusado pelo banco): descarta e avisa.
-        if (/conexão|sessão/i.test(msg)) {
+        // Erro que não se resolve tentando de novo (valor recusado pelo banco): descarta e avisa.
+        // Qualquer outro (internet, sessão, servidor fora do ar) fica na fila para a próxima tentativa.
+        if (!ERRO_DEFINITIVO.test(msg)) {
           ultimoErro = msg
           break
         }
@@ -284,6 +319,7 @@ function criarFila() {
     retrato: () => pendentes,
     erro: () => ultimoErro,
     marcar(item: DadosItemCompra) {
+      ultimoErro = null
       const novo = new Map(pendentes)
       novo.set(item.id, { item, versao: (pendentes.get(item.id)?.versao ?? 0) + 1 })
       trocar(novo)
@@ -294,7 +330,13 @@ function criarFila() {
     },
     enviarAgora: () => enviar(),
     aguardando: (compraId: string) => [...pendentes.values()].filter((p) => p.item.compra_id === compraId).length,
-    definirAoEnviar(f: (compraId: string) => void) {
+    descartarItem(id: string) {
+      if (!pendentes.has(id)) return
+      const novo = new Map(pendentes)
+      novo.delete(id)
+      trocar(novo)
+    },
+    definirAoEnviar(f: (compraId: string, salvo: ItemCompra | null) => void) {
       aoEnviar = f
     },
   }
@@ -309,10 +351,29 @@ const fila = criarFila()
 export function useMarcarItem() {
   const qc = useQueryClient()
   // Quando uma marcação sobe, busca a lista de novo (cancela uma busca antiga que esteja no meio).
-  useEffect(() => fila.definirAoEnviar((compraId) => void qc.invalidateQueries({ queryKey: chaveItens(compraId) })), [qc])
+  // Quando uma marcação sobe, a linha salva entra na lista na hora (sem "piscar" o estado antigo
+  // até a próxima busca) e a lista é buscada de novo.
+  useEffect(
+    () =>
+      fila.definirAoEnviar((compraId, salvo) => {
+        if (salvo) {
+          const linha = normalizarItem(salvo)
+          qc.setQueryData<ItemCompra[]>(chaveItens(compraId), (atual) =>
+            atual && (atual.some((i) => i.id === linha.id) ? atual.map((i) => (i.id === linha.id ? linha : i)) : [...atual, linha]),
+          )
+        }
+        void qc.invalidateQueries({ queryKey: chaveItens(compraId) })
+      }),
+    [qc],
+  )
   return (item: DadosItemCompra) => {
     const { criado_em: _c, atualizado_em: _a, ...dados } = item as ItemCompra
-    fila.marcar({ ...dados, preco_pago: dados.preco_pago == null ? null : centavos(dados.preco_pago) })
+    fila.marcar({
+      ...dados,
+      // mesmas casas do banco (quantidade 3, preço 2)
+      qtd_comprada: dados.qtd_comprada == null ? null : Math.round(dados.qtd_comprada * 1000) / 1000 || null,
+      preco_pago: dados.preco_pago == null ? null : centavos(dados.preco_pago),
+    })
   }
 }
 
@@ -379,6 +440,10 @@ export function useFinalizarCompra() {
       if (fila.aguardando(d.compra.id) > 0) throw new Error('Algumas marcações ainda não foram enviadas. Confira a internet e tente de novo.')
       const agora = new Date().toISOString()
       const local = d.compra.local?.trim() || null
+      // Nova tentativa: tira do histórico o que uma tentativa anterior desta compra gravou e não vale mais.
+      const historicoIds = new Set(d.historico.map((h) => h.id))
+      for (const h of await db.listar<PrecoGuardado>('precos_insumo', { compra_id: d.compra.id }))
+        if (!historicoIds.has(h.id)) await db.remover('precos_insumo', h.id)
       if (d.historico.length > 0) {
         await db.salvarVarios('precos_insumo', d.historico.map((h) => ({ ...h, registrado_em: agora, compra_id: d.compra.id, local })))
       }
@@ -393,6 +458,12 @@ export function useFinalizarCompra() {
           })) as Insumo[],
         )
       }
+      // Numa nova tentativa a forma de pagamento pode ter mudado (ex.: era "a pagar" em 3 vezes,
+      // agora "paguei agora"): apaga o que uma tentativa anterior desta compra gravou e não vale mais.
+      const titulosIds = new Set(d.titulos.map((t) => t.id))
+      for (const t of await db.listar<Titulo>('fin_titulos', { compra_id: d.compra.id })) if (!titulosIds.has(t.id)) await db.remover('fin_titulos', t.id)
+      const lancIds = new Set(d.lancamentos.map((l) => l.id))
+      for (const l of await db.listar<Lancamento>('fin_lancamentos', { compra_id: d.compra.id })) if (!lancIds.has(l.id)) await db.remover('fin_lancamentos', l.id)
       if (d.titulos.length > 0) {
         await db.salvarVarios<Titulo>(
           'fin_titulos',
@@ -405,8 +476,10 @@ export function useFinalizarCompra() {
           d.lancamentos.map((l) => ({ ...l, valor: centavos(l.valor), compra_id: d.compra.id, criado_em: agora, atualizado_em: agora })),
         )
       }
+      const { criado_em: _c, ...compra } = d.compra
+      // Linha inteira: um upsert parcial falharia no Supabase (nome é obrigatório no insert).
       return db.salvar<Compra>('compras', {
-        id: d.compra.id,
+        ...compra,
         status: 'finalizada',
         total: centavos(d.total),
         finalizada_em: agora,

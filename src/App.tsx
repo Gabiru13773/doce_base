@@ -26,6 +26,10 @@ const FinMaisPage = lazy(() => import('./modules/financeiro/FinMaisPage'))
 const TitulosPage = lazy(() => import('./modules/financeiro/titulos/TitulosPage'))
 const TituloFormPage = lazy(() => import('./modules/financeiro/titulos/TituloFormPage'))
 const ImportarOfxPage = lazy(() => import('./modules/financeiro/importar/ImportarOfxPage'))
+const ComprasPage = lazy(() => import('./modules/compras/ComprasPage'))
+const MontarCompraPage = lazy(() => import('./modules/compras/MontarCompraPage'))
+const FazerCompraPage = lazy(() => import('./modules/compras/FazerCompraPage'))
+const FinalizarCompraPage = lazy(() => import('./modules/compras/FinalizarCompraPage'))
 
 export default function App() {
   const { carregando, usuario } = useAuth()
@@ -67,6 +71,11 @@ export default function App() {
         <Route path="produtos" element={<ProdutosPage />} />
         <Route path="produtos/novo" element={<ProdutoFormPage />} />
         <Route path="produtos/:id" element={<ProdutoFormPage />} />
+        <Route path="compras" element={<ComprasPage />} />
+        <Route path="compras/nova" element={<MontarCompraPage />} />
+        <Route path="compras/:id" element={<FazerCompraPage />} />
+        <Route path="compras/:id/lista" element={<MontarCompraPage />} />
+        <Route path="compras/:id/finalizar" element={<FinalizarCompraPage />} />
         <Route
           path="estoque"
           element={

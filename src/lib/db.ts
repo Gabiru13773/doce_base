@@ -23,6 +23,11 @@ export interface Banco {
    * "tudo ou nada" vale só dentro de cada grupo.
    */
   salvarVarios<T extends Registro>(tabela: string, registros: (Omit<T, 'id'> & { id?: string })[]): Promise<T[]>
+  /**
+   * Altera só as colunas enviadas de uma linha que já existe (nunca cria).
+   * Devolve a linha completa, ou null se ela não existe mais (ex.: apagada em outro aparelho).
+   */
+  atualizar<T extends Registro>(tabela: string, id: string, campos: Partial<Omit<T, 'id'>>): Promise<T | null>
   remover(tabela: string, id: string): Promise<void>
 }
 
@@ -125,6 +130,12 @@ const bancoSupabase = (sb: NonNullable<typeof supabase>): Banco => ({
     const porId = new Map(salvas.map((l) => [l.id, l]))
     return linhas.map((l) => porId.get(l.id)).filter((l): l is T => !!l)
   },
+  async atualizar<T extends Registro>(tabela: string, id: string, campos: Partial<Omit<T, 'id'>>) {
+    // update (e não upsert): não exige as colunas obrigatórias e não recria uma linha apagada.
+    const { data, error } = await sb.from(tabela).update(campos as Record<string, unknown>).eq('id', id).select().maybeSingle()
+    if (error) throw erroDoBanco(error)
+    return (data ?? null) as T | null
+  },
   async remover(tabela: string, id: string) {
     const { error } = await sb.from(tabela).delete().eq('id', id)
     if (error) throw erroDoBanco(error)
@@ -212,6 +223,14 @@ const bancoLocal: Banco = {
     })
     gravarTabela(tabela, linhas)
     return salvas
+  },
+  async atualizar<T extends Registro>(tabela: string, id: string, campos: Partial<Omit<T, 'id'>>) {
+    const linhas = lerTabela<T>(tabela)
+    const i = linhas.findIndex((l) => l.id === id)
+    if (i < 0) return null
+    linhas[i] = { ...linhas[i], ...campos, id } as T
+    gravarTabela(tabela, linhas)
+    return linhas[i]
   },
   async remover(tabela: string, id: string) {
     gravarTabela(

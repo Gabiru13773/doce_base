@@ -8,6 +8,7 @@ import {
   Menu,
   Package,
   PlusCircle,
+  ShoppingCart,
   Wallet,
   type LucideIcon,
 } from 'lucide-react'
@@ -31,13 +32,14 @@ const MENU_PRODUCAO: ItemMenu[] = [
   { para: '/producao', rotulo: 'Produzir', icone: CookingPot },
   { para: '/receitas', rotulo: 'Receitas', icone: ChefHat },
   { para: '/estoque', rotulo: 'Estoque', icone: Package },
-  { para: '/mais', rotulo: 'Mais', icone: Menu, tambem: ['/produtos', '/insumos', '/config'] },
+  { para: '/mais', rotulo: 'Mais', icone: Menu, tambem: ['/produtos', '/insumos', '/config', '/compras'] },
 ]
 
-// No computador sobra espaço: o menu lateral mostra também os Produtos (no celular ficam em "Mais").
+// No computador sobra espaço: o menu lateral mostra também Produtos e Compras (no celular ficam em "Mais").
 const MENU_PRODUCAO_LATERAL: ItemMenu[] = [
   ...MENU_PRODUCAO.slice(0, 3),
   { para: '/produtos', rotulo: 'Produtos', icone: Gift },
+  { para: '/compras', rotulo: 'Compras', icone: ShoppingCart },
   ...MENU_PRODUCAO.slice(3),
 ]
 

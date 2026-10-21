@@ -1,7 +1,8 @@
-import { Calculator, ChefHat, ChevronRight, CloudOff, CookingPot, Gift, Package, type LucideIcon } from 'lucide-react'
+import { Calculator, ChefHat, ChevronRight, CloudOff, CookingPot, Gift, Package, ShoppingCart, type LucideIcon } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { Cartao } from '../../components/ui'
 import { modoLocal } from '../../lib/supabase'
+import { useCompras } from '../compras/api'
 import { useInsumos } from '../insumos/api'
 import { useProdutos } from '../produtos/api'
 import { useReceitas } from '../receitas/api'
@@ -30,6 +31,9 @@ export default function InicioPage() {
   const receitas = useReceitas()
   const qtdReceitas = receitas.data?.length
   const produtos = useProdutos()
+  const compras = useCompras()
+  // A mais recente em andamento (useCompras já vem da mais nova para a mais antiga).
+  const compraAberta = compras.data?.find((c) => c.status === 'aberta')
   const qtdProdutos = produtos.data?.length
   // Primeiros passos somem só quando já houver insumos, receitas E produtos.
   const mostrarPrimeirosPassos =
@@ -82,6 +86,33 @@ export default function InicioPage() {
             Como sincronizar
           </Link>
         </div>
+      )}
+
+      {compraAberta ? (
+        <Link
+          to={`/compras/${compraAberta.id}`}
+          className="flex min-h-14 items-center gap-3 rounded-2xl border border-marca/30 bg-marca-clara px-4 py-3 active:bg-marca-clara/60"
+        >
+          <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-marca text-white">
+            <ShoppingCart className="size-5" aria-hidden />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-sm text-marca-escura">Compra em andamento</span>
+            <span className="block truncate font-semibold">{compraAberta.nome}</span>
+          </span>
+          <span className="shrink-0 font-semibold text-marca">Continuar</span>
+          <ChevronRight className="size-5 shrink-0 text-marca" aria-hidden />
+        </Link>
+      ) : (
+        compras.isSuccess && (
+          <Link
+            to="/compras/nova"
+            className="-my-2 inline-flex min-h-12 items-center gap-2 self-start rounded-xl px-2 font-semibold text-marca active:bg-marca-clara"
+          >
+            <ShoppingCart className="size-5" aria-hidden />
+            Fazer lista de compras
+          </Link>
+        )
       )}
 
       <nav aria-label="Atalhos" className="grid grid-cols-2 gap-3 [&>a:last-child:nth-child(odd)]:col-span-2">
