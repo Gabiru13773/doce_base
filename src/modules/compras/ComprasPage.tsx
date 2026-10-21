@@ -1,78 +1,88 @@
 import { ChevronRight, ShoppingCart } from 'lucide-react'
 import { Link, useNavigate } from 'react-router-dom'
-import { BarraAcao, Botao, Carregando, Erro, TituloPagina, Vazio } from '../../components/ui'
+import { useMemo } from 'react'
+import { Botao, Carregando, Erro, TituloPagina, Vazio } from '../../components/ui'
 import { resumoCompra } from '../../lib/compras'
 import { moeda } from '../../lib/format'
-import { dataBr, mensagemDe } from '../financeiro/util'
+import { dataBr, mensagemDe, nomeMes } from '../financeiro/util'
 import { useCompras, useItensCompra, type Compra } from './api'
 
-export default function ComprasPage() {
+/**
+ * Área Compras. "Comprar" (/compras): as compras em andamento, para continuar no mercado.
+ * "Histórico" (/compras/historico): as finalizadas, com o total gasto por mês.
+ */
+export default function ComprasPage({ historico = false }: { historico?: boolean }) {
   const navegar = useNavigate()
   const { data: compras, isLoading, isError, error, refetch } = useCompras()
 
   const abertas = (compras ?? []).filter((c) => c.status === 'aberta')
   const finalizadas = (compras ?? []).filter((c) => c.status === 'finalizada')
+  const porMes = useMemo(() => {
+    const meses = new Map<string, Compra[]>()
+    for (const c of finalizadas) meses.set(c.data.slice(0, 7), [...(meses.get(c.data.slice(0, 7)) ?? []), c])
+    return [...meses]
+  }, [finalizadas])
+
+  if (isLoading) return <Carregando />
+  if (isError) return <Erro mensagem={mensagemDe(error)} tentarDeNovo={() => refetch()} />
+
+  if (historico) {
+    return (
+      <>
+        <TituloPagina titulo="Histórico" subtitulo="Compras finalizadas" />
+        {finalizadas.length === 0 ? (
+          <Vazio
+            titulo="Nenhuma compra finalizada"
+            texto="Quando vocês finalizarem uma compra, ela aparece aqui com o total pago."
+          />
+        ) : (
+          <div className="flex flex-col gap-6">
+            {porMes.map(([mes, lista]) => (
+              <section key={mes} className="flex flex-col gap-2">
+                <h2 className="flex items-baseline justify-between gap-3 text-lg font-bold">
+                  <span className="first-letter:uppercase">{nomeMes(mes)}</span>
+                  <span className="text-base font-semibold text-suave">{moeda(lista.reduce((t, c) => t + (c.total ?? 0), 0))}</span>
+                </h2>
+                <ul className="divide-y divide-borda overflow-hidden rounded-2xl border border-borda bg-superficie">
+                  {lista.map((c) => (
+                    <li key={c.id}>
+                      <Link to={`/compras/${c.id}`} className="flex min-h-16 items-center gap-3 px-4 py-3 active:bg-marca-clara">
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate font-semibold">{c.nome}</p>
+                          <p className="truncate text-sm text-suave">{[dataBr(c.data), c.local].filter(Boolean).join(' · ')}</p>
+                        </div>
+                        <p className="shrink-0 font-bold">{c.total != null ? moeda(c.total) : '—'}</p>
+                        <ChevronRight className="size-5 shrink-0 text-suave" aria-hidden />
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            ))}
+          </div>
+        )}
+      </>
+    )
+  }
 
   return (
     <>
-      <TituloPagina titulo="Compras" subtitulo="Lista do mercado, feita a dois" />
-
-      {isLoading ? (
-        <Carregando />
-      ) : isError ? (
-        <Erro mensagem={mensagemDe(error)} tentarDeNovo={() => refetch()} />
-      ) : (compras ?? []).length === 0 ? (
+      <TituloPagina titulo="Comprar" subtitulo="Lista do mercado, feita a dois" />
+      {abertas.length === 0 ? (
         <Vazio
-          titulo="Nenhuma compra ainda"
-          texto="Monte a lista com os seus insumos, façam a compra juntos (cada um no seu celular) e o app guarda o preço pago de cada item. Na próxima vez, você vê o último, o menor e o maior preço."
-          acao={<Botao onClick={() => navegar('/compras/nova')}>Fazer a primeira lista</Botao>}
+          titulo="Nenhuma compra em andamento"
+          texto="Monte a lista com os seus insumos e façam a compra juntos, cada um no seu celular. O app guarda o preço pago de cada item: na próxima vez, você vê o último, o menor e o maior preço."
+          acao={<Botao onClick={() => navegar('/compras/nova')}>Montar uma lista</Botao>}
         />
       ) : (
-        <div className="flex flex-col gap-6">
-          <section className="flex flex-col gap-2">
-            <h2 className="text-lg font-bold">Em andamento</h2>
-            {abertas.length === 0 ? (
-              <p className="rounded-2xl border border-dashed border-borda bg-superficie px-4 py-4 text-suave">
-                Nenhuma compra em andamento.
-              </p>
-            ) : (
-              <ul className="flex flex-col gap-2">
-                {abertas.map((c) => (
-                  <li key={c.id}>
-                    <CartaoAberta compra={c} />
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
-
-          {finalizadas.length > 0 && (
-            <section className="flex flex-col gap-2">
-              <h2 className="text-lg font-bold">Finalizadas</h2>
-              <ul className="divide-y divide-borda overflow-hidden rounded-2xl border border-borda bg-superficie">
-                {finalizadas.map((c) => (
-                  <li key={c.id}>
-                    <Link to={`/compras/${c.id}`} className="flex min-h-16 items-center gap-3 px-4 py-3 active:bg-marca-clara">
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate font-semibold">{c.nome}</p>
-                        <p className="truncate text-sm text-suave">{[dataBr(c.data), c.local].filter(Boolean).join(' · ')}</p>
-                      </div>
-                      <p className="shrink-0 font-bold">{c.total != null ? moeda(c.total) : '—'}</p>
-                      <ChevronRight className="size-5 shrink-0 text-suave" aria-hidden />
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          )}
-        </div>
+        <ul className="flex flex-col gap-3">
+          {abertas.map((c) => (
+            <li key={c.id}>
+              <CartaoAberta compra={c} />
+            </li>
+          ))}
+        </ul>
       )}
-
-      <BarraAcao>
-        <Botao className="flex-1" onClick={() => navegar('/compras/nova')}>
-          + Nova compra
-        </Botao>
-      </BarraAcao>
     </>
   )
 }

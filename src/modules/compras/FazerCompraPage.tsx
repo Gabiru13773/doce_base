@@ -76,11 +76,14 @@ export default function FazerCompraPage() {
   return <CompraAberta compra={compra} itens={itens.data ?? []} />
 }
 
-function LinkCompras() {
+function LinkCompras({ historico = false }: { historico?: boolean }) {
   return (
-    <Link to="/compras" className="-ml-2 mb-2 inline-flex min-h-11 items-center gap-1 rounded-xl px-2 text-suave active:bg-marca-clara">
+    <Link
+      to={historico ? '/compras/historico' : '/compras'}
+      className="-ml-2 mb-2 inline-flex min-h-11 items-center gap-1 rounded-xl px-2 text-suave active:bg-marca-clara"
+    >
       <ArrowLeft className="size-5" aria-hidden />
-      Compras
+      {historico ? 'Histórico' : 'Compras'}
     </Link>
   )
 }
@@ -298,7 +301,7 @@ function CompraAberta({ compra, itens }: { compra: Compra; itens: ItemCompra[] }
           Fora da lista
         </Botao>
         <Botao className="flex-1" onClick={() => navegar(`/compras/${compra.id}/finalizar`)}>
-          Finalizar compra
+          Finalizar
         </Botao>
       </BarraAcao>
 
@@ -530,7 +533,7 @@ function CompraFinalizada({ compra, itens }: { compra: Compra; itens: ItemCompra
 
   return (
     <>
-      <LinkCompras />
+      <LinkCompras historico />
       <header className="mb-4">
         <h1 className="text-2xl font-bold break-words">{compra.nome}</h1>
         <p className="text-suave">{subtituloCompra(compra)}</p>

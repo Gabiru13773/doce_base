@@ -1,6 +1,6 @@
 import { Search, X } from 'lucide-react'
 import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode } from 'react'
-import { useId } from 'react'
+import { createContext, useContext, useId } from 'react'
 
 // Componentes base do app. Tudo pensado para o dedo: alvos de toque grandes,
 // texto legível e poucos elementos por tela.
@@ -31,10 +31,18 @@ export function Botao({
   )
 }
 
+/** Verdadeiro quando o menu de baixo do celular está escondido (modo mercado das Compras). */
+export const MenuOculto = createContext(false)
+
 /** Barra fixa no rodapé com a ação principal da tela (no celular fica acima do menu). */
 export function BarraAcao({ children }: { children: ReactNode }) {
+  const semMenu = useContext(MenuOculto)
   return (
-    <div className="no-print fixed inset-x-0 bottom-[calc(4.5rem+env(safe-area-inset-bottom))] z-20 border-t border-borda bg-creme/95 px-4 py-3 backdrop-blur md:bottom-0 md:left-60">
+    <div
+      className={`no-print fixed inset-x-0 z-20 border-t border-borda bg-creme/95 px-4 py-3 backdrop-blur md:bottom-0 md:left-60 ${
+        semMenu ? 'bottom-0 pb-[max(0.75rem,env(safe-area-inset-bottom))]' : 'bottom-[calc(4.5rem+env(safe-area-inset-bottom))]'
+      }`}
+    >
       <div className="mx-auto flex max-w-2xl gap-3">{children}</div>
     </div>
   )

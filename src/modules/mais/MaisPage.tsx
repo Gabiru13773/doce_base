@@ -1,11 +1,10 @@
-import { ChevronRight, CloudOff, Gift, Package, Percent, ShoppingCart, type LucideIcon } from 'lucide-react'
+import { ChevronRight, CloudOff, Gift, Package, Percent, type LucideIcon } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../../auth/Autenticacao'
 import { Botao, Cartao, TituloPagina } from '../../components/ui'
 import { modoLocal } from '../../lib/supabase'
 
 const LINKS: { para: string; titulo: string; texto: string; icone: LucideIcon }[] = [
-  { para: '/compras', titulo: 'Compras', texto: 'Lista do mercado, feita a dois, com histórico de preços', icone: ShoppingCart },
   { para: '/produtos', titulo: 'Produtos', texto: 'O que você vende, com embalagem e preço', icone: Gift },
   { para: '/insumos', titulo: 'Insumos', texto: 'Ingredientes, embalagens e materiais', icone: Package },
   { para: '/config/precos', titulo: 'Preços e margens', texto: 'Valor da hora, custos fixos, taxas e lucro', icone: Percent },
