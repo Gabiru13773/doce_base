@@ -3,7 +3,7 @@ import { PLANO_PADRAO } from '../modules/financeiro/planoPadrao'
 import { paraLancamentos, sugerir, type ContextoConciliacao } from './conciliacao'
 import type { TransacaoOfx } from './ofx'
 
-// Testes extras da revisão adversarial. `it.fails` documenta um defeito real.
+// Testes extras da revisão adversarial (defeitos encontrados, já corrigidos).
 
 const categorias = PLANO_PADRAO.map((c, i) => ({ id: `cat${i}`, tipo: c.tipo, nome: c.nome, ativo: true }))
 const CONTA = 'nubank'
@@ -57,7 +57,7 @@ const EMBALAGENS = {
 describe('ligar transação a conta a pagar/receber', () => {
   // Título de R$ 100 com R$ 40 já pagos (falta 60). Uma saída de R$ 100 no extrato casa pelo
   // valor CHEIO e vem marcada (incluir = true) como baixa: o título fica com R$ 140 pagos.
-  it.fails('não sugere baixa cheia num título que já foi pago em parte', () => {
+  it('não sugere baixa cheia num título que já foi pago em parte', () => {
     const titulo = { ...EMBALAGENS, valor: 100 }
     const r = sugerir([tr('a', '2026-10-10', -100, 'PIX ENVIADO EMBALAGENS SILVA')], {
       ...ctx(),
@@ -65,6 +65,13 @@ describe('ligar transação a conta a pagar/receber', () => {
       lancamentos: [lanc({ id: 'p1', data: '2026-10-01', valor: 40, titulo_id: titulo.id })],
     })
     expect(r[0].titulo).toBeNull()
+    // o que falta (R$ 60) continua casando
+    const falta = sugerir([tr('b', '2026-10-10', -60, 'PIX ENVIADO EMBALAGENS SILVA')], {
+      ...ctx(),
+      titulos: [titulo],
+      lancamentos: [lanc({ id: 'p1', data: '2026-10-01', valor: 40, titulo_id: titulo.id })],
+    })
+    expect(falta[0].titulo?.tituloId).toBe(titulo.id)
   })
 
   it('o mesmo título não é sugerido como principal em duas linhas', () => {
@@ -78,7 +85,7 @@ describe('ligar transação a conta a pagar/receber', () => {
   // ...mas a segunda linha recebe o MESMO título em `alternativas`, e a LinhaRevisao mostra
   // "Pode ser a conta “Embalagens”? Toque para ver." — um toque e as duas linhas viram baixa
   // do mesmo título (R$ 300 pagos numa conta de R$ 150). importar() não confere isso.
-  it.fails('a outra linha não oferece como alternativa um título já usado', () => {
+  it('a outra linha não oferece como alternativa um título já usado', () => {
     const r = sugerir(
       [tr('a', '2026-10-10', -150, 'PIX ENVIADO EMBALAGENS SILVA'), tr('b', '2026-10-11', -150, 'PIX ENVIADO EMBALAGENS SILVA')],
       { ...ctx(), titulos: [EMBALAGENS] },
@@ -92,22 +99,45 @@ describe('já importada (FITID)', () => {
   // Banco que reaproveita FITID: um lançamento de setembro com FITID "1" faz uma transação
   // de outubro, com outro valor e outro sentido, aparecer como "já importada" — ela fica
   // desmarcada e travada, e o dinheiro nunca entra no app.
-  it.fails('mesmo FITID mas valor, sentido e data diferentes não é "já importada"', () => {
+  it('mesmo FITID mas valor, sentido e data diferentes não é "já importada"', () => {
     const r = sugerir([tr('1', '2026-10-05', 80, 'PIX RECEBIDO ANA')], {
       ...ctx(),
       lancamentos: [lanc({ id: 'set', data: '2026-09-01', valor: 50, tipo: 'saida', ofx_fitid: '1' })],
     })
     expect(r[0].jaImportada).toBe(false)
+    // fica para a pessoa conferir, e com um FITID novo (o índice único recusaria o "1" de novo)
+    expect(r[0].possivelDuplicata).toBe(true)
+    expect(r[0].transacao.fitid).not.toBe('1')
+    // importada assim, um novo envio do mesmo arquivo a reconhece
+    const [gravado] = paraLancamentos([{ transacao: r[0].transacao, categoriaId: null, tituloId: null }], CONTA)
+    const de_novo = sugerir([tr('1', '2026-10-05', 80, 'PIX RECEBIDO ANA')], {
+      ...ctx(),
+      lancamentos: [
+        lanc({ id: 'set', data: '2026-09-01', valor: 50, tipo: 'saida', ofx_fitid: '1' }),
+        lanc({ id: 'out', data: '2026-10-05', valor: 80, tipo: 'entrada', ofx_fitid: gravado.ofx_fitid }),
+      ],
+    })
+    expect(de_novo[0].jaImportada).toBe(true)
+  })
+
+  it('FITID de outra conta importadora (ofx_conta_id) não conta como já importada aqui', () => {
+    const r = sugerir([tr('77', '2026-10-05', -300, 'TED ENVIADA INTER')], {
+      ...ctx(),
+      lancamentos: [
+        lanc({ id: 'x', tipo: 'transferencia', conta_id: CONTA, conta_destino_id: 'inter', data: '2026-10-05', valor: 300, ofx_fitid: '77', ofx_conta_id: 'inter' }),
+      ],
+    })
+    expect(r[0].jaImportada).toBe(false)
   })
 
   // Transferência recebida importada do extrato do Inter: fica gravada com conta_id = Nubank
-  // (origem) e ofx_fitid = FITID do Inter. O índice único é (conta_id, ofx_fitid), então o
-  // FITID do Inter passa a "ocupar" o espaço de FITIDs do Nubank.
-  it('transferência recebida grava o FITID na conta de ORIGEM (conta_id = outra conta)', () => {
+  // (origem) e ofx_fitid = FITID do Inter. O FITID fica marcado como do extrato do Inter
+  // (ofx_conta_id), e o índice único é (ofx_conta_id, ofx_fitid).
+  it('transferência recebida grava o FITID com a conta que importou (ofx_conta_id)', () => {
     const [l] = paraLancamentos(
       [{ transacao: tr('inter-77', '2026-10-05', 300, 'TED RECEBIDA NUBANK'), categoriaId: null, tituloId: null, contaTransferenciaId: 'nubank' }],
       'inter',
     )
-    expect(l).toMatchObject({ tipo: 'transferencia', conta_id: 'nubank', conta_destino_id: 'inter', ofx_fitid: 'inter-77' })
+    expect(l).toMatchObject({ tipo: 'transferencia', conta_id: 'nubank', conta_destino_id: 'inter', ofx_fitid: 'inter-77', ofx_conta_id: 'inter' })
   })
 })

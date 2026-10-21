@@ -1,5 +1,5 @@
 import { ArrowLeft, ChevronRight } from 'lucide-react'
-import { useId, useMemo, useState, type FormEvent } from 'react'
+import { useId, useMemo, useRef, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useAviso } from '../../../components/Aviso'
 import { BarraAcao, Botao, Campo, Carregando, Cartao, Entrada, EntradaNumero, Erro, Pilulas, TituloPagina, Vazio } from '../../../components/ui'
@@ -12,7 +12,7 @@ import {
   useContasFin,
   useLancamentos,
   useRemoverTitulo,
-  useSalvarLancamentos,
+  useRestaurarTitulo,
   useSalvarTitulos,
   useTitulos,
   type DadosTitulo,
@@ -103,8 +103,13 @@ function Formulario({ original, tipoInicial }: { original?: Titulo; tipoInicial:
   const { data: contas } = useContasFin()
   const salvar = useSalvarTitulos()
   const remover = useRemoverTitulo()
-  const religar = useSalvarLancamentos()
+  const restaurar = useRestaurarTitulo()
   const desfazerBaixa = useDesfazerBaixa()
+  // Ids dos registros novos, gerados uma vez por formulário: se a gravação for repetida (toque
+  // duplo, rede que caiu depois de gravar), atualiza as mesmas linhas em vez de duplicar.
+  const [grupoNovo] = useState(() => novoId())
+  const idsParcelas = useRef<string[]>([])
+  const idParcela = (i: number) => (idsParcelas.current[i] ??= novoId())
 
   const [tipo, setTipo] = useState<TipoTitulo>(tipoInicial)
   const [descricao, setDescricao] = useState(original?.descricao ?? '')
@@ -130,7 +135,7 @@ function Formulario({ original, tipoInicial }: { original?: Titulo; tipoInicial:
     () => (original ? (lancamentos ?? []).filter((l) => l.titulo_id === original.id).sort((a, b) => a.data.localeCompare(b.data)) : []),
     [lancamentos, original],
   )
-  const mapaBaixas = useMemo(() => baixasPorTitulo(lancamentos ?? []), [lancamentos])
+  const mapaBaixas = useMemo(() => baixasPorTitulo(lancamentos ?? [], titulos ?? []), [lancamentos, titulos])
   const sit = original ? situacaoTitulo(original, mapaBaixas, dia) : null
 
   // Nomes já usados, para sugerir enquanto digita.
@@ -160,6 +165,8 @@ function Formulario({ original, tipoInicial }: { original?: Titulo; tipoInicial:
   if (!vencimento) erros.vencimento = 'Escolha a data de vencimento'
   if (repete && !(Number.isInteger(vezesNum) && vezesNum >= 2 && vezesNum <= 60))
     erros.vezes = 'Escolha um número de 2 a 60'
+  else if (repete && repetir === 'parcelado' && valorNum > 0 && Math.round(valorNum * 100) < vezesNum)
+    erros.vezes = `${moeda(valorNum)} não dá para dividir em ${vezesNum} vezes (cada parcela precisa ter pelo menos 1 centavo)`
   const temErro = Object.keys(erros).length > 0
   const mostrar: Erros = tentou ? erros : {}
 
@@ -195,11 +202,11 @@ function Formulario({ original, tipoInicial }: { original?: Titulo; tipoInicial:
     if (original) {
       lista = [{ ...base, id: original.id, valor: valorNum, vencimento, grupo_id: original.grupo_id, parcela: original.parcela }]
     } else {
-      const grupo = geradas.length > 1 ? novoId() : null
-      lista = geradas.map((g) => ({ ...base, valor: g.valor, vencimento: g.vencimento, parcela: g.parcela, grupo_id: grupo }))
+      const grupo = geradas.length > 1 ? grupoNovo : null
+      lista = geradas.map((g, i) => ({ ...base, id: idParcela(i), valor: g.valor, vencimento: g.vencimento, parcela: g.parcela, grupo_id: grupo }))
     }
     try {
-      await salvar.mutateAsync(lista)
+      await salvar.mutateAsync({ novos: !original, lista })
       avisar({ texto: lista.length > 1 ? `${lista.length} contas criadas ✓` : 'Conta salva ✓' })
       navegar(`/financeiro/contas?tipo=${tipo}`)
     } catch {
@@ -207,27 +214,25 @@ function Formulario({ original, tipoInicial }: { original?: Titulo; tipoInicial:
     }
   }
 
-  function aoApagar() {
+  async function aoApagar() {
     if (!original) return
     const copia = original
     const baixasCopia: Lancamento[] = baixas
-    remover.mutate(copia.id, {
-      onSuccess: () => {
-        navegar(`/financeiro/contas?tipo=${copia.tipo}`)
-        avisar({
-          texto:
-            baixasCopia.length > 0
-              ? `Conta apagada. ${baixasCopia.length === 1 ? 'O pagamento dela continua' : 'Os pagamentos dela continuam'} nas entradas e saídas.`
-              : 'Conta apagada',
-          desfazer: () =>
-            salvar.mutate([copia], {
-              // Liga de novo os pagamentos (no banco, o vínculo some ao apagar).
-              onSuccess: () => {
-                if (baixasCopia.length > 0) religar.mutate(baixasCopia.map((l) => ({ ...l, titulo_id: copia.id })))
-              },
-            }),
-        })
-      },
+    try {
+      // mutateAsync (e não um onSuccess no mutate): continua valendo mesmo se a tela fechar antes.
+      await remover.mutateAsync(copia.id)
+    } catch {
+      return // o erro aparece na tela pelo estado da mutação
+    }
+    navegar(`/financeiro/contas?tipo=${copia.tipo}`)
+    avisar({
+      texto:
+        baixasCopia.length > 0
+          ? `Conta apagada. ${baixasCopia.length === 1 ? 'O pagamento dela continua' : 'Os pagamentos dela continuam'} nas entradas e saídas.`
+          : 'Conta apagada',
+      // Volta a conta e liga de novo os pagamentos (no banco, o vínculo some ao apagar), tudo na
+      // mesma mutação: esta tela já fechou quando a pessoa toca em Desfazer.
+      desfazer: () => restaurar.mutate({ titulo: copia, baixas: baixasCopia }),
     })
   }
 

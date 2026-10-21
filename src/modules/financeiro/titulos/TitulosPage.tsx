@@ -66,7 +66,7 @@ export default function TitulosPage() {
 
   // Todas as contas do tipo escolhido, com a situação de cada uma.
   const linhas = useMemo<Linha[]>(() => {
-    const baixas = baixasPorTitulo(lancamentos.data ?? [])
+    const baixas = baixasPorTitulo(lancamentos.data ?? [], titulos.data ?? [])
     return (titulos.data ?? [])
       .filter((t) => t.tipo === tipo)
       .map((t) => ({ titulo: t, sit: situacaoTitulo(t, baixas, dia) }))

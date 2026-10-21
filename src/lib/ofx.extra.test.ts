@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { lerDataOfx, lerOfx, lerValorOfx } from './ofx'
 
-// Testes extras da revisão adversarial. `it.fails` documenta um defeito real.
+// Testes extras da revisão adversarial (defeitos encontrados, já corrigidos).
 
 const ofx = (trns: string) => `OFXHEADER:100
 DATA:OFXSGML
@@ -38,10 +38,10 @@ describe('FITID que o banco repete', () => {
   })
 
   // Bancos que mandam FITID fixo/sequencial ("0", "1", "2"… reiniciando a cada arquivo):
-  // a 1ª transação de cada arquivo fica com o FITID cru. Dois extratos de meses diferentes
-  // produzem o mesmo FITID para transações diferentes → a do segundo mês aparece como
-  // "já importada" (e o índice único (conta_id, ofx_fitid) recusaria gravá-la).
-  it.fails('FITID repetido no arquivo não é confiável: transações diferentes de arquivos diferentes não colidem', () => {
+  // antes, a 1ª transação de cada arquivo ficava com o FITID cru e dois extratos de meses
+  // diferentes produziam o mesmo FITID. Agora todas as cópias de um FITID repetido no arquivo
+  // ganham o sufixo pelo conteúdo.
+  it('FITID repetido no arquivo não é confiável: transações diferentes de arquivos diferentes não colidem', () => {
     const setembro = lerOfx(ofx(trn('0', '20260901', '-10.00', 'PADARIA') + trn('0', '20260902', '-20.00', 'MERCADO')))
     const outubro = lerOfx(ofx(trn('0', '20261001', '-99.00', 'ALUGUEL') + trn('0', '20261002', '-5.00', 'TARIFA')))
     const usadosSetembro = new Set(setembro.transacoes.map((t) => t.fitid))

@@ -37,12 +37,12 @@ describe('situacaoTitulo', () => {
     expect(situacaoTitulo(t, new Map(), '2026-10-01').situacao).toBe('aberto')
     expect(situacaoTitulo(t, new Map(), '2026-10-10').situacao).toBe('vence_hoje')
     expect(situacaoTitulo(t, new Map(), '2026-10-11').situacao).toBe('atrasado')
-    const parcial = baixasPorTitulo([l({ tipo: 'saida', valor: 40, titulo_id: 't' })])
+    const parcial = baixasPorTitulo([l({ tipo: 'saida', valor: 40, titulo_id: 't' })], [t])
     expect(situacaoTitulo(t, parcial, '2026-10-01')).toMatchObject({ situacao: 'parcial', pago: 40, falta: 60 })
     const pago = baixasPorTitulo([
       l({ tipo: 'saida', valor: 40, titulo_id: 't', data: '2026-10-02' }),
       l({ tipo: 'saida', valor: 60, titulo_id: 't', data: '2026-10-05' }),
-    ])
+    ], [t])
     expect(situacaoTitulo(t, pago, '2026-12-01')).toMatchObject({ situacao: 'pago', pagoEm: '2026-10-05' })
   })
 })

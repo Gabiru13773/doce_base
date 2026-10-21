@@ -16,7 +16,12 @@ export interface Banco {
   buscar<T extends Registro>(tabela: string, id: string): Promise<T | null>
   /** Insere ou atualiza pelo id. Na atualização, só as colunas enviadas mudam. Devolve a linha completa. */
   salvar<T extends Registro>(tabela: string, registro: Omit<T, 'id'> & { id?: string }): Promise<T>
-  /** Insere ou atualiza várias linhas de uma vez: ou grava todas, ou nenhuma. */
+  /**
+   * Insere ou atualiza várias linhas de uma vez: ou grava todas, ou nenhuma.
+   * Mande linhas com as mesmas colunas (ex.: não misture novas, com criado_em, e edições, sem):
+   * no Supabase, linhas com colunas diferentes vão em requisições separadas e aí o
+   * "tudo ou nada" vale só dentro de cada grupo.
+   */
   salvarVarios<T extends Registro>(tabela: string, registros: (Omit<T, 'id'> & { id?: string })[]): Promise<T[]>
   remover(tabela: string, id: string): Promise<void>
 }
@@ -66,18 +71,21 @@ function ordenar<T>(linhas: T[], ordem?: Ordem): T[] {
 
 const bancoSupabase = (sb: NonNullable<typeof supabase>): Banco => ({
   async listar<T extends Registro>(tabela: string, filtro?: Record<string, string | number | boolean>, ordem?: Ordem) {
-    // O Supabase devolve no máximo 1000 linhas por vez: busca em páginas até acabar.
-    const PAGINA = 1000
+    // O Supabase devolve no máximo um tanto de linhas por vez (1000 no padrão, mas o projeto pode
+    // ter um limite menor): busca em páginas até vir uma vazia. Parar na página "incompleta" cortaria
+    // a lista sem aviso se o limite do servidor fosse menor que a página pedida.
+    const PAGINA = 500
     const todas: T[] = []
-    for (let inicio = 0; ; inicio += PAGINA) {
+    for (let inicio = 0; ; ) {
       let q = sb.from(tabela).select('*')
       for (const [k, v] of Object.entries(filtro ?? {})) q = q.eq(k, v)
       // id como desempate deixa a paginação estável
       q = (ordem ? q.order(ordem.coluna, { ascending: ordem.crescente ?? true }) : q).order('id')
       const { data, error } = await q.range(inicio, inicio + PAGINA - 1)
       if (error) throw erroDoBanco(error)
-      todas.push(...((data ?? []) as T[]))
-      if (!data || data.length < PAGINA) break
+      if (!data || data.length === 0) break
+      todas.push(...(data as T[]))
+      inicio += data.length
     }
     return ordenar(todas, ordem)
   },
@@ -97,10 +105,25 @@ const bancoSupabase = (sb: NonNullable<typeof supabase>): Banco => ({
   async salvarVarios<T extends Registro>(tabela: string, registros: (Omit<T, 'id'> & { id?: string })[]) {
     if (registros.length === 0) return []
     const linhas = registros.map((r) => ({ ...r, id: r.id ?? novoId() }))
-    // Uma requisição só (uma transação). defaultToNull: false → coluna ausente usa o default da tabela.
-    const { data, error } = await sb.from(tabela).upsert(linhas, { onConflict: 'id', defaultToNull: false }).select()
-    if (error) throw erroDoBanco(error)
-    return (data ?? []) as T[]
+    // Num upsert de várias linhas, o PostgREST usa as colunas de todas juntas: numa linha que
+    // não traz uma coluna (ex.: criado_em numa edição), a atualização gravaria o default da
+    // tabela por cima do valor antigo. Por isso linhas com colunas diferentes vão em grupos
+    // separados. Com linhas iguais (o normal: ver Banco.salvarVarios) é uma requisição só,
+    // uma transação. defaultToNull: false → coluna ausente num registro novo usa o default.
+    const grupos = new Map<string, typeof linhas>()
+    for (const l of linhas) {
+      const chave = Object.keys(l).sort().join(',')
+      grupos.set(chave, [...(grupos.get(chave) ?? []), l])
+    }
+    const salvas: T[] = []
+    for (const grupo of grupos.values()) {
+      const { data, error } = await sb.from(tabela).upsert(grupo, { onConflict: 'id', defaultToNull: false }).select()
+      if (error) throw erroDoBanco(error)
+      salvas.push(...((data ?? []) as T[]))
+    }
+    // devolve na ordem pedida
+    const porId = new Map(salvas.map((l) => [l.id, l]))
+    return linhas.map((l) => porId.get(l.id)).filter((l): l is T => !!l)
   },
   async remover(tabela: string, id: string) {
     const { error } = await sb.from(tabela).delete().eq('id', id)
@@ -202,10 +225,16 @@ export const db: Banco = supabase ? bancoSupabase(supabase) : bancoLocal
 
 // ---- Erros em português -----------------------------------------------------
 
+// Mensagens de erro levantadas pelos gatilhos (raise exception '<código>'; ver supabase/migrations).
+const ERROS_GATILHO: Record<string, string> = {
+  baixa_sentido_invalido: 'Uma conta a pagar só pode ser baixada com uma saída (e a receber, com uma entrada).',
+}
+
 // Mensagens para restrições com nome conhecido (ver supabase/migrations).
 const RESTRICOES: Record<string, string> = {
   pct_validos: 'Custos fixos + taxas + margem precisam somar menos de 100%.',
   fin_lancamentos_ofx_unico: 'Essa transação do extrato já foi importada nesta conta.',
+  fin_lancamentos_ofx_unico2: 'Essa transação do extrato já foi importada nesta conta.',
   fin_lancamentos_transferencia: 'Na transferência, escolha uma conta de destino diferente da de origem.',
   fin_categorias_unica: 'Já existe uma categoria com esse nome neste grupo.',
   produtos_variacoes_formato: 'Confira as variações: o produto precisa de pelo menos uma, cada uma com nome, e os ajustes de % precisam somar menos de 100%.',
@@ -220,6 +249,8 @@ function traduzirErro(msg: string, codigo = '', detalhes = ''): string {
   if (/Failed to fetch|NetworkError|Load failed|network|fetch failed/i.test(tudo)) return 'Sem conexão com a internet. Tente de novo.'
   if (codigo === 'PGRST301' || codigo === 'PGRST303' || /JWT/i.test(msg)) return 'Sua sessão expirou. Entre de novo.'
   if (codigo === '42501' || /permission denied|row-level security/i.test(msg)) return 'Sem permissão para isso. Saia e entre de novo.'
+  const gatilho = Object.keys(ERROS_GATILHO).find((c) => msg.includes(c))
+  if (gatilho) return ERROS_GATILHO[gatilho]
   const restricao = /constraint "([^"]+)"/.exec(msg)?.[1]
   if (restricao && RESTRICOES[restricao]) return RESTRICOES[restricao]
   switch (codigo) {

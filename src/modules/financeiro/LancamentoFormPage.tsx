@@ -3,6 +3,7 @@ import { useId, useState, type FormEvent } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { useAviso } from '../../components/Aviso'
 import { BarraAcao, Botao, Campo, Carregando, Cartao, Entrada, Erro, Pilulas, TituloPagina, Vazio } from '../../components/ui'
+import { novoId } from '../../lib/db'
 import { lerNumero, moeda, paraCampo } from '../../lib/format'
 import {
   FORMAS_PAGAMENTO,
@@ -161,16 +162,25 @@ function Formulario({
   const [observacao, setObservacao] = useState(original?.observacao ?? '')
   const [maisAberto, setMaisAberto] = useState(!!(original?.pessoa || original?.observacao))
   const [tentou, setTentou] = useState(false)
+  // Id do lançamento novo, gerado uma vez por formulário: se a gravação for repetida (toque duplo,
+  // rede que caiu depois de gravar), atualiza o mesmo lançamento em vez de duplicar.
+  const [idNovo] = useState(() => novoId())
 
   const transferencia = tipo === 'transferencia'
+  // Baixa de uma conta a pagar/receber: o tipo não muda (saída paga conta a pagar, entrada recebe
+  // conta a receber; trocar faria uma entrada "pagar" uma conta a pagar).
+  const tipoFixo = !!original?.titulo_id
   const valorNum = lerNumero(valor)
 
   function mudarTipo(t: TipoLancamento) {
+    if (tipoFixo) return
     setTipo(t)
     // A categoria precisa ser do mesmo sentido (entrada ou saída).
     const cat = categorias.find((c) => c.id === categoriaId)
     if (cat && cat.tipo !== t) setCategoriaId(null)
     if (t !== 'transferencia') setDestinoId(null)
+    // Transferência → entrada: o dinheiro entrou na conta de destino, não na de origem.
+    if (tipo === 'transferencia' && t === 'entrada' && destinoId) setContaId(destinoId)
   }
 
   const erros: Erros = {}
@@ -205,9 +215,11 @@ function Formulario({
       return
     }
     try {
-      await salvar.mutateAsync([
+      await salvar.mutateAsync({
+        novos: !original,
+        lista: [
         {
-          id: original?.id,
+          id: original?.id ?? idNovo,
           tipo,
           data,
           descricao: descricaoFinal(),
@@ -219,9 +231,11 @@ function Formulario({
           forma_pagamento: forma,
           titulo_id: original?.titulo_id ?? null,
           ofx_fitid: original?.ofx_fitid ?? null,
+          ofx_conta_id: original?.ofx_conta_id ?? null,
           observacao,
         },
-      ])
+        ],
+      })
       gravarUltimaConta(contaId)
       avisar({ texto: original ? 'Lançamento salvo ✓' : `${TIPOS.find((t) => t.valor === tipo)?.rotulo} de ${moeda(valorNum)} anotada ✓` })
       voltar()
@@ -230,19 +244,18 @@ function Formulario({
     }
   }
 
-  function aoApagar() {
+  async function aoApagar() {
     if (!original) return
     const copia = original
-    remover.mutate(copia.id, {
-      onSuccess: () => {
-        voltar()
-        avisar({ texto: 'Lançamento apagado', desfazer: () => restaurar.mutate(copia) })
-      },
-    })
+    try {
+      // mutateAsync (e não um onSuccess no mutate, que não roda se a tela fechar antes de terminar).
+      await remover.mutateAsync(copia.id)
+    } catch {
+      return // o erro aparece na tela pelo estado da mutação
+    }
+    voltar()
+    avisar({ texto: 'Lançamento apagado', desfazer: () => restaurar.mutate(copia) })
   }
-
-  // Se o lançamento é baixa de uma conta a pagar/receber, não vira transferência.
-  const tiposPermitidos = original?.titulo_id ? TIPOS.filter((t) => t.valor !== 'transferencia') : TIPOS
 
   return (
     <form onSubmit={aoSalvar} noValidate>
@@ -273,7 +286,14 @@ function Formulario({
 
         <div className="flex flex-col gap-1.5">
           <p className="font-semibold">O que aconteceu?</p>
-          <Pilulas rotulo="Tipo de lançamento" valor={tipo} aoMudar={mudarTipo} opcoes={tiposPermitidos} />
+          {tipoFixo ? (
+            <p className="text-suave">
+              <strong className="text-tinta">{TIPOS.find((t) => t.valor === tipo)?.rotulo}</strong>
+              {titulo ? ` · Baixa de: ${titulo.descricao}` : ' · Baixa de uma conta a pagar/receber'} (o tipo não muda)
+            </p>
+          ) : (
+            <Pilulas rotulo="Tipo de lançamento" valor={tipo} aoMudar={mudarTipo} opcoes={TIPOS} />
+          )}
         </div>
 
         <Campo rotulo="Valor" id={idValor} erro={mostrar.valor}>

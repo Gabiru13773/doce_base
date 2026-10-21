@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { BarraAcao, Botao, Carregando, Erro, TituloPagina, Vazio } from '../../components/ui'
 import { saldoConta } from '../../lib/financeiro'
 import { moeda } from '../../lib/format'
-import { TIPOS_CONTA, useContasFin, useLancamentos, type ContaFin, type Lancamento } from './api'
+import { TIPOS_CONTA, hoje, useContasFin, useLancamentos, type ContaFin, type Lancamento } from './api'
 import { mensagemDe } from './util'
 
 export default function ContasBancariasPage() {
@@ -59,10 +59,12 @@ export default function ContasBancariasPage() {
 }
 
 function Lista({ contas, lancamentos }: { contas: ContaFin[]; lancamentos: Lancamento[] }) {
+  const dia = hoje()
   return (
     <ul className="flex flex-col gap-2">
       {contas.map((c) => {
-        const saldo = saldoConta(c, lancamentos)
+        // saldo de hoje: lançamentos com data futura (agendados) ainda não contam
+        const saldo = saldoConta(c, lancamentos, dia)
         return (
           <li key={c.id}>
             <Link

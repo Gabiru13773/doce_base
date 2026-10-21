@@ -4,7 +4,7 @@
 
 import type { CategoriaFin, ContaFin, DadosLancamento, Lancamento, Titulo } from '../modules/financeiro/api'
 import { baixasPorTitulo, situacaoTitulo } from './financeiro'
-import type { TransacaoOfx } from './ofx'
+import { hashTexto, type TransacaoOfx } from './ofx'
 
 export type Confianca = 'alta' | 'media' | 'baixa'
 export type Direcao = 'entrada' | 'saida'
@@ -22,9 +22,12 @@ export interface SugestaoTitulo {
 export interface LinhaImportacao {
   transacao: TransacaoOfx
   direcao: Direcao
-  /** Já existe um lançamento desta conta com o mesmo FITID. */
+  /** Já existe um lançamento desta conta com o mesmo FITID (e o mesmo sentido e valor). */
   jaImportada: boolean
-  /** Um lançamento parecido (mesmo valor, mesma data ±2 dias) já foi anotado à mão. */
+  /**
+   * Um lançamento parecido (mesmo valor, mesma data ±2 dias) já foi anotado à mão, ou um
+   * lançamento desta conta tem o mesmo FITID mas outro valor/sentido (banco que reaproveita FITID).
+   */
   possivelDuplicata: boolean
   duplicataDe: string | null
   /** Melhor conta a pagar/receber para dar baixa (só quando a certeza é razoável). */
@@ -46,10 +49,11 @@ export interface LinhaImportacao {
 
 export interface ContextoConciliacao {
   contaId: string
-  lancamentos: Pick<
+  lancamentos: (Pick<
     Lancamento,
     'id' | 'tipo' | 'data' | 'descricao' | 'pessoa' | 'categoria_id' | 'conta_id' | 'conta_destino_id' | 'valor' | 'titulo_id' | 'ofx_fitid'
-  >[]
+  > &
+    Partial<Pick<Lancamento, 'ofx_conta_id'>>)[]
   titulos: Pick<Titulo, 'id' | 'tipo' | 'descricao' | 'pessoa' | 'categoria_id' | 'valor' | 'vencimento'>[]
   categorias: Pick<CategoriaFin, 'id' | 'tipo' | 'nome' | 'ativo'>[]
   /** Outras contas (para reconhecer transferências entre contas próprias). */
@@ -231,16 +235,19 @@ export function sugerir(transacoes: TransacaoOfx[], ctx: ContextoConciliacao): L
   const { contaId } = ctx
   const fitidsDoArquivo = new Set(transacoes.map((t) => t.fitid))
 
-  // Já importadas: FITID desta conta (inclui transferências recebidas, guardadas na outra ponta).
-  const porFitid = new Map<string, string>()
+  // FITIDs importados do extrato DESTA conta (ofx_conta_id; nos lançamentos antigos, sem essa
+  // coluna, vale qualquer lançamento que mexe nesta conta, inclusive transferência recebida).
+  const porFitid = new Map<string, { id: string; chave: string }[]>()
   // Candidatas a duplicata, por sentido + valor em centavos.
   const parecidas = new Map<string, { id: string; data: string; janela: number }[]>()
   for (const l of ctx.lancamentos) {
     const sentido = sentidoNaConta(l, contaId)
     if (!sentido) continue
-    if (l.ofx_fitid && fitidsDoArquivo.has(l.ofx_fitid)) {
-      porFitid.set(l.ofx_fitid, l.id)
-      continue
+    const doExtratoDestaConta = !!l.ofx_fitid && (l.ofx_conta_id ? l.ofx_conta_id === contaId : true)
+    if (l.ofx_fitid && doExtratoDestaConta) {
+      const item = { id: l.id, chave: `${sentido}|${cent(l.valor)}` }
+      porFitid.set(l.ofx_fitid, [...(porFitid.get(l.ofx_fitid) ?? []), item])
+      if (fitidsDoArquivo.has(l.ofx_fitid)) continue
     }
     // Anotado à mão (±2 dias), transferência vinda da outra conta (±2) ou importado com outro FITID (mesmo dia:
     // alguns bancos mudam o FITID de um extrato para outro).
@@ -252,18 +259,17 @@ export function sugerir(transacoes: TransacaoOfx[], ctx: ContextoConciliacao): L
     else parecidas.set(chave, [item])
   }
 
-  // Contas a pagar/receber em aberto, por valor (o que falta e o valor cheio).
-  const baixas = baixasPorTitulo(ctx.lancamentos)
+  // Contas a pagar/receber em aberto, pelo que falta (numa conta paga em parte, o valor cheio
+  // não serve: pagaria mais do que o devido).
+  const baixas = baixasPorTitulo(ctx.lancamentos, ctx.titulos)
   const titulosPorValor = new Map<string, { t: ContextoConciliacao['titulos'][number]; falta: number; palavras: string[] }[]>()
   for (const t of ctx.titulos) {
     const s = situacaoTitulo(t, baixas, ctx.hoje)
     if (s.situacao === 'pago') continue
     const item = { t, falta: s.falta, palavras: palavrasChave(t.descricao, t.pessoa) }
     const direcao: Direcao = t.tipo === 'pagar' ? 'saida' : 'entrada'
-    for (const v of new Set([cent(s.falta), cent(t.valor)])) {
-      const chave = `${direcao}|${v}`
-      titulosPorValor.set(chave, [...(titulosPorValor.get(chave) ?? []), item])
-    }
+    const chave = `${direcao}|${cent(s.falta)}`
+    titulosPorValor.set(chave, [...(titulosPorValor.get(chave) ?? []), item])
   }
 
   const titulosPorId = new Map(ctx.titulos.map((t) => [t.id, t]))
@@ -301,9 +307,28 @@ export function sugerir(transacoes: TransacaoOfx[], ctx: ContextoConciliacao): L
     .map((c) => ({ ...c, n: normalizar(c.nome) }))
     .filter((c) => c.n.length >= 3)
 
-  // 1º passo: candidatos de título de cada transação.
-  const base = transacoes.map((tr) => {
-    const direcao: Direcao = tr.valor < 0 ? 'saida' : 'entrada'
+  // 1º passo: já importada? E os candidatos de título de cada transação.
+  const base = transacoes.map((original) => {
+    const direcao: Direcao = original.valor < 0 ? 'saida' : 'entrada'
+    const chaveValor = `${direcao}|${cent(original.valor)}`
+    // Mesmo FITID só é "já importada" se o sentido e o valor também batem. Se não batem, o banco
+    // reaproveitou o FITID: a transação ganha um FITID novo pelo conteúdo (senão o índice único
+    // recusaria gravá-la) e fica marcada como possível repetida, para a pessoa conferir.
+    let tr = original
+    let jaImportada = false
+    let conflitoFitid: string | null = null
+    const mesmoFitid = porFitid.get(original.fitid)
+    if (mesmoFitid) {
+      if (mesmoFitid.some((x) => x.chave === chaveValor)) jaImportada = true
+      else {
+        conflitoFitid = mesmoFitid[0].id
+        tr = { ...original, fitid: `${original.fitid}-${hashTexto(`${original.data}|${original.valor.toFixed(2)}|${original.descricao}`)}` }
+        if (porFitid.get(tr.fitid)?.some((x) => x.chave === chaveValor)) {
+          jaImportada = true
+          conflitoFitid = null
+        }
+      }
+    }
     const palavras = palavrasChave(tr.descricao)
     const candidatos: SugestaoTitulo[] = []
     for (const { t, falta, palavras: pt } of titulosPorValor.get(`${direcao}|${cent(tr.valor)}`) ?? []) {
@@ -315,7 +340,7 @@ export function sugerir(transacoes: TransacaoOfx[], ctx: ContextoConciliacao): L
       if (!candidatos.some((c) => c.tituloId === t.id)) candidatos.push({ tituloId: t.id, confianca, dias, falta, pontos })
     }
     candidatos.sort((a, b) => b.pontos - a.pontos)
-    return { tr, direcao, palavras, candidatos }
+    return { tr, direcao, palavras, candidatos, jaImportada, conflitoFitid }
   })
 
   // 2º passo: cada título vai para uma transação só (a que combina mais).
@@ -324,17 +349,16 @@ export function sugerir(transacoes: TransacaoOfx[], ctx: ContextoConciliacao): L
   const tituloDe = new Map<number, SugestaoTitulo>()
   const tituloUsado = new Set<string>()
   for (const { i, c } of pares) {
-    if (tituloDe.has(i) || tituloUsado.has(c.tituloId) || porFitid.has(base[i].tr.fitid)) continue
+    if (tituloDe.has(i) || tituloUsado.has(c.tituloId) || base[i].jaImportada) continue
     tituloDe.set(i, c)
     tituloUsado.add(c.tituloId)
   }
 
   const duplicataUsada = new Set<string>()
 
-  return base.map(({ tr, direcao, palavras, candidatos }, i) => {
-    const jaImportada = porFitid.has(tr.fitid)
-    let duplicataDe: string | null = null
-    if (!jaImportada) {
+  return base.map(({ tr, direcao, palavras, candidatos, jaImportada, conflitoFitid }, i) => {
+    let duplicataDe: string | null = conflitoFitid
+    if (!jaImportada && !duplicataDe) {
       let melhor = Infinity
       for (const p of parecidas.get(`${direcao}|${cent(tr.valor)}`) ?? []) {
         const d = Math.abs(diasEntre(tr.data, p.data))
@@ -347,7 +371,9 @@ export function sugerir(transacoes: TransacaoOfx[], ctx: ContextoConciliacao): L
     }
 
     const titulo = tituloDe.get(i) ?? null
-    const alternativas = candidatos.filter((c) => c.tituloId !== titulo?.tituloId)
+    // Um título já sugerido para uma linha não aparece como alternativa nas outras (senão dá para
+    // baixar a mesma conta duas vezes).
+    const alternativas = candidatos.filter((c) => !tituloUsado.has(c.tituloId))
 
     // Transferência entre contas próprias.
     const n = normalizar(tr.descricao)
@@ -469,6 +495,9 @@ export function paraLancamentos(linhas: LinhaConfirmada[], contaId: string, opco
       pessoa: l.pessoa !== undefined ? l.pessoa : extrairPessoa(t.descricao),
       valor: Math.round(Math.abs(t.valor) * 100) / 100,
       ofx_fitid: t.fitid,
+      // O FITID é do extrato desta conta, mesmo quando o lançamento fica guardado na outra
+      // (transferência recebida: conta_id = origem).
+      ofx_conta_id: contaId,
       observacao: null,
     }
     const outra = l.contaTransferenciaId && l.contaTransferenciaId !== contaId ? l.contaTransferenciaId : null

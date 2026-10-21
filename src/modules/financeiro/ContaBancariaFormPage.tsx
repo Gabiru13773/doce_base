@@ -84,7 +84,7 @@ function Formulario({ original, contas }: { original?: ContaFin; contas: ContaFi
     }
   }
 
-  const saldoAtual = original && lancamentos.data ? saldoConta(original, lancamentos.data) : null
+  const saldoAtual = original && lancamentos.data ? saldoConta(original, lancamentos.data, hoje()) : null
 
   return (
     <form onSubmit={aoSalvar} noValidate>

@@ -68,6 +68,8 @@ interface Props {
   contaId: string
   titulosAbertos: TituloAberto[]
   tituloPorId: Map<string, TituloAberto>
+  /** Conta a pagar/receber → linha (fitid) que já a escolheu; as outras linhas não a oferecem. */
+  tituloEscolhidoEm: Map<string, string>
   duplicata: Lancamento | undefined
   alterar: (fitid: string, mudanca: Partial<Escolha>) => void
   abrir: (fitid: string | null) => void
@@ -82,6 +84,7 @@ export const LinhaRevisao = memo(function LinhaRevisao({
   contaId,
   titulosAbertos,
   tituloPorId,
+  tituloEscolhidoEm,
   duplicata,
   alterar,
   abrir,
@@ -93,7 +96,12 @@ export const LinhaRevisao = memo(function LinhaRevisao({
   const titulo = e.tituloId ? tituloPorId.get(e.tituloId) : undefined
   const outraConta = e.contaId ? contas.find((c) => c.id === e.contaId) : undefined
   const temOutrasContas = contas.some((c) => c.ativo && c.id !== contaId)
-  const titulosDoSentido = titulosAbertos.filter((x) => x.tipo === (entrada ? 'receber' : 'pagar'))
+  // Conta já escolhida em outra linha não aparece aqui (senão a mesma conta seria baixada duas vezes).
+  const livre = (id: string) => {
+    const dono = tituloEscolhidoEm.get(id)
+    return id === e.tituloId || !dono || dono === t.fitid
+  }
+  const titulosDoSentido = titulosAbertos.filter((x) => x.tipo === (entrada ? 'receber' : 'pagar') && livre(x.id))
 
   let resumo
   if (linha.jaImportada) {
@@ -144,7 +152,10 @@ export const LinhaRevisao = memo(function LinhaRevisao({
   if (titulosDoSentido.length > 0) opcoesModo.push({ valor: 'titulo', rotulo: entrada ? 'Conta a receber' : 'Conta a pagar' })
   if (temOutrasContas) opcoesModo.push({ valor: 'transferencia', rotulo: 'Transferência' })
 
-  const sugeridos = [linha.titulo, ...linha.alternativas].filter((s): s is NonNullable<typeof s> => !!s && tituloPorId.has(s.tituloId))
+  const sugeridos = [linha.titulo, ...linha.alternativas].filter(
+    (s): s is NonNullable<typeof s> => !!s && tituloPorId.has(s.tituloId) && livre(s.tituloId),
+  )
+  const alternativaLivre = linha.alternativas.find((a) => tituloPorId.has(a.tituloId) && livre(a.tituloId))
   const valorAbs = Math.abs(t.valor)
 
   return (
@@ -187,9 +198,9 @@ export const LinhaRevisao = memo(function LinhaRevisao({
               </span>
             </span>
           )}
-          {!linha.jaImportada && e.modo !== 'titulo' && !linha.titulo && linha.alternativas.length > 0 && (
+          {!linha.jaImportada && e.modo !== 'titulo' && !linha.titulo && alternativaLivre && (
             <span className="text-sm text-suave">
-              Pode ser a conta “{tituloPorId.get(linha.alternativas[0].tituloId)?.descricao}”? Toque para ver.
+              Pode ser a conta “{tituloPorId.get(alternativaLivre.tituloId)?.descricao}”? Toque para ver.
             </span>
           )}
         </button>
@@ -257,7 +268,7 @@ export const LinhaRevisao = memo(function LinhaRevisao({
                 <p className="rounded-xl bg-alerta-claro px-3 py-2 text-sm text-alerta">
                   {valorAbs < titulo.falta
                     ? `Faltam ${moeda(titulo.falta)} nessa conta: ela vai ficar paga só em parte.`
-                    : `Essa conta só tem ${moeda(titulo.falta)} em aberto; o valor do extrato é maior.`}
+                    : `Essa conta só tem ${moeda(titulo.falta)} em aberto e o valor do extrato é maior: assim não dá para importar. Ligue a outra conta ou escolha uma categoria.`}
                 </p>
               )}
             </div>

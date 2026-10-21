@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, ty
 import { Link } from 'react-router-dom'
 import { BarraAcao, Botao, Cartao, Carregando, Erro, Pilulas, TituloPagina, Vazio } from '../../../components/ui'
 import { paraLancamentos, sugerir, type LinhaConfirmada, type LinhaImportacao } from '../../../lib/conciliacao'
+import { novoId } from '../../../lib/db'
 import { baixasPorTitulo, situacaoTitulo } from '../../../lib/financeiro'
 import { moeda } from '../../../lib/format'
 import { decodificarOfx, lerOfx, type ExtratoOfx } from '../../../lib/ofx'
@@ -60,6 +61,7 @@ const nomeDia = (d: string) => {
   const t = fmtDia.format(utc(d))
   return t.charAt(0).toUpperCase() + t.slice(1)
 }
+const diaMesCurto = (d: string) => `${d.slice(8, 10)}/${d.slice(5, 7)}`
 
 export default function ImportarOfxPage() {
   const contasQ = useContasFin()
@@ -109,8 +111,12 @@ export default function ImportarOfxPage() {
     })
   }, [arquivo, contaId, lancamentos, titulos, categorias, contas, dataHoje])
 
+  // Id de cada lançamento, gerado uma vez por arquivo (na mesma ordem das linhas): se a importação
+  // for repetida (toque duplo, rede que caiu depois de gravar), atualiza as mesmas linhas.
+  const idsLinhas = useMemo(() => (arquivo?.extrato.transacoes ?? []).map(() => novoId()), [arquivo])
+
   const titulosAbertos = useMemo<TituloAberto[]>(() => {
-    const baixas = baixasPorTitulo(lancamentos)
+    const baixas = baixasPorTitulo(lancamentos, titulos)
     return titulos
       .map((t) => ({ t, s: situacaoTitulo(t, baixas, dataHoje) }))
       .filter(({ s }) => s.situacao !== 'pago')
@@ -151,6 +157,37 @@ export default function ImportarOfxPage() {
     }
     return { novas, jaImportadas, marcadas, ligadas, semCategoria, transferenciaSemConta, escolhas }
   }, [linhas, mudancas])
+
+  // Contas a pagar/receber escolhidas em cada linha marcada: a mesma conta não pode ser baixada
+  // por mais do que falta nela (ex.: dois Pix iguais ligados à mesma conta).
+  const usoTitulos = useMemo(() => {
+    const porTitulo = new Map<string, LinhaImportacao[]>()
+    for (const l of linhas) {
+      const e = resumo.escolhas.get(l.transacao.fitid)!
+      if (!e.incluir || l.jaImportada || e.modo !== 'titulo' || !e.tituloId) continue
+      porTitulo.set(e.tituloId, [...(porTitulo.get(e.tituloId) ?? []), l])
+    }
+    const problemas: string[] = []
+    for (const [id, ls] of porTitulo) {
+      const t = tituloPorId.get(id)
+      if (!t) continue
+      const soma = ls.reduce((s, l) => s + Math.abs(l.transacao.valor), 0)
+      if (soma <= t.falta + 0.005) continue
+      const quais = ls.map((l) => `${diaMesCurto(l.transacao.data)} (${moeda(Math.abs(l.transacao.valor))})`).join(', ')
+      problemas.push(
+        ls.length === 1
+          ? `A linha de ${quais} passa do que falta na conta “${t.descricao}” (${moeda(t.falta)}). Ligue a outra conta ou escolha uma categoria.`
+          : `A conta “${t.descricao}” só tem ${moeda(t.falta)} em aberto, mas está ligada a ${ls.length} linhas que somam ${moeda(soma)}: ${quais}. Deixe ligada só a certa.`,
+      )
+    }
+    // Para a revisão: em qual linha cada conta já foi escolhida (as outras linhas não a oferecem).
+    const dono = new Map<string, string>()
+    for (const [id, ls] of porTitulo) dono.set(id, ls[0].transacao.fitid)
+    return { problemas, dono }
+  }, [linhas, resumo.escolhas, tituloPorId])
+  // Mesma referência enquanto as escolhas de conta não mudam (as linhas são memo).
+  const chaveDono = [...usoTitulos.dono].map(([t, f]) => `${t}:${f}`).join('|')
+  const tituloEscolhidoEm = useMemo(() => usoTitulos.dono, [chaveDono])
 
   // Lista por dia (mais recente primeiro), já filtrada.
   const dias = useMemo(() => {
@@ -233,12 +270,18 @@ export default function ImportarOfxPage() {
   async function importar() {
     if (!contaId || !arquivo) return
     setErroSalvar(null)
+    if (usoTitulos.problemas.length > 0) {
+      setErroSalvar(usoTitulos.problemas.join(' '))
+      return
+    }
     const confirmadas: LinhaConfirmada[] = []
+    const ids: string[] = []
     let baixas = 0
     let transferencias = 0
-    for (const l of linhas) {
+    for (const [i, l] of linhas.entries()) {
       const e = resumo.escolhas.get(l.transacao.fitid)!
       if (!e.incluir || l.jaImportada) continue
+      ids.push(idsLinhas[i])
       const titulo = e.modo === 'titulo' && e.tituloId ? tituloPorId.get(e.tituloId) : undefined
       const transferencia = e.modo === 'transferencia' && e.contaId ? e.contaId : null
       if (titulo) baixas++
@@ -255,7 +298,8 @@ export default function ImportarOfxPage() {
     }
     if (confirmadas.length === 0) return
     try {
-      await salvar.mutateAsync(paraLancamentos(confirmadas, contaId, { cartaoCredito: arquivo.extrato.cartaoCredito }))
+      const lista = paraLancamentos(confirmadas, contaId, { cartaoCredito: arquivo.extrato.cartaoCredito }).map((d, k) => ({ ...d, id: ids[k] }))
+      await salvar.mutateAsync({ novos: true, lista })
       if (origemAtual) gravarLocal(chaveOrigem(contaId), origemAtual)
       setResultado({ lancamentos: confirmadas.length, baixas, transferencias })
       setPasso('pronto')
@@ -421,6 +465,7 @@ export default function ImportarOfxPage() {
                       contaId={contaId}
                       titulosAbertos={titulosAbertos}
                       tituloPorId={tituloPorId}
+                      tituloEscolhidoEm={tituloEscolhidoEm}
                       duplicata={l.duplicataDe ? lancamentoPorId.get(l.duplicataDe) : undefined}
                       alterar={alterar}
                       abrir={setAberta}
@@ -432,7 +477,15 @@ export default function ImportarOfxPage() {
           </div>
         )}
 
-        {(resumo.semCategoria > 0 || resumo.transferenciaSemConta > 0 || erroSalvar) && <div className="h-4" />}
+        {(resumo.semCategoria > 0 || resumo.transferenciaSemConta > 0 || usoTitulos.problemas.length > 0 || erroSalvar) && (
+          <div className="h-4" />
+        )}
+        {usoTitulos.problemas.map((p) => (
+          <p key={p} role="alert" className="mb-2 flex items-start gap-2 rounded-2xl bg-perigo-claro px-4 py-3 text-perigo">
+            <AlertTriangle className="mt-0.5 size-5 shrink-0" aria-hidden />
+            <span>{p}</span>
+          </p>
+        ))}
         {resumo.semCategoria > 0 && (
           <p className="mb-2 flex items-start gap-2 rounded-2xl bg-alerta-claro px-4 py-3 text-alerta">
             <AlertTriangle className="mt-0.5 size-5 shrink-0" aria-hidden />
@@ -457,7 +510,7 @@ export default function ImportarOfxPage() {
           <Botao
             className="flex-1"
             onClick={importar}
-            disabled={resumo.marcadas === 0 || resumo.transferenciaSemConta > 0 || salvar.isPending}
+            disabled={resumo.marcadas === 0 || resumo.transferenciaSemConta > 0 || usoTitulos.problemas.length > 0 || salvar.isPending}
           >
             {salvar.isPending
               ? 'Importando…'

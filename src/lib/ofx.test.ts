@@ -351,7 +351,8 @@ describe('lerOfx', () => {
     const r = lerOfx(BB)
     const ids = r.transacoes.map((t) => t.fitid)
     expect(new Set(ids).size).toBe(3)
-    expect(ids[0]).toBe('000000')
+    // repetido no arquivo: todas as cópias (inclusive a 1ª) ganham sufixo pelo conteúdo
+    expect(ids.every((id) => id.startsWith('000000-'))).toBe(true)
     expect(lerOfx(BB).transacoes.map((t) => t.fitid)).toEqual(ids)
     expect(r.transacoes[0].descricao).toBe('Tarifa Pacote de Serviços')
     expect(r.transacoes[0].documento).toBe('100.001')

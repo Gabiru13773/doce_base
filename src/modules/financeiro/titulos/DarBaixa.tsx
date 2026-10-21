@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEven
 import { Link } from 'react-router-dom'
 import { useAviso } from '../../../components/Aviso'
 import { Botao, Entrada, EntradaNumero, Erro, Pilulas } from '../../../components/ui'
+import { novoId } from '../../../lib/db'
 import { baixasPorTitulo, situacaoTitulo } from '../../../lib/financeiro'
 import { lerNumero, moeda, paraCampo } from '../../../lib/format'
 import {
@@ -38,11 +39,14 @@ export function useDesfazerBaixa() {
   const remover = useRemoverLancamento()
   const restaurar = useRestaurarLancamento()
   return {
+    // mutateAsync (e não um onSuccess no mutate, que não roda se a tela fechar antes de terminar).
     desfazer: (l: Lancamento) =>
-      remover.mutate(l.id, {
-        onSuccess: () =>
-          avisar({ texto: `Baixa de ${moeda(l.valor)} desfeita`, desfazer: () => restaurar.mutate(l) }),
-      }),
+      remover
+        .mutateAsync(l.id)
+        .then(() => avisar({ texto: `Baixa de ${moeda(l.valor)} desfeita`, desfazer: () => restaurar.mutate(l) }))
+        .catch(() => {
+          // o erro aparece na tela pelo estado da mutação
+        }),
     pendente: remover.isPending,
     erro: remover.isError ? mensagemDe(remover.error) : null,
   }
@@ -58,9 +62,12 @@ function Painel({ titulo, aoFechar }: { titulo: Titulo; aoFechar: () => void }) 
 
   const dia = hoje()
   const sit = useMemo(
-    () => situacaoTitulo(titulo, baixasPorTitulo(lancamentos ?? []), dia),
+    () => situacaoTitulo(titulo, baixasPorTitulo(lancamentos ?? [], [titulo]), dia),
     [titulo, lancamentos, dia],
   )
+  // Id do lançamento, gerado uma vez por abertura da janela: se a gravação for repetida
+  // (toque duplo, rede que caiu depois de gravar), atualiza a mesma baixa em vez de duplicar.
+  const [idNovo] = useState(() => novoId())
   const contasAtivas = (contas ?? []).filter((c) => c.ativo)
   const contaPadrao = (() => {
     const ids = new Set(contasAtivas.map((c) => c.id))
@@ -140,8 +147,11 @@ function Painel({ titulo, aoFechar }: { titulo: Titulo; aoFechar: () => void }) 
     setTentou(true)
     if (temErro || !contaId) return
     try {
-      const [salvo] = await salvar.mutateAsync([
+      const [salvo] = await salvar.mutateAsync({
+        novos: true,
+        lista: [
         {
+          id: idNovo,
           tipo: titulo.tipo === 'pagar' ? 'saida' : 'entrada',
           data,
           valor: valorNum,
@@ -153,9 +163,11 @@ function Painel({ titulo, aoFechar }: { titulo: Titulo; aoFechar: () => void }) 
           titulo_id: titulo.id,
           forma_pagamento: formaAtual || null,
           ofx_fitid: null,
+          ofx_conta_id: null,
           observacao: null,
         },
-      ])
+        ],
+      })
       const total = Math.round(valorNum * 100) === Math.round(sit.falta * 100)
       const texto =
         titulo.tipo === 'pagar'

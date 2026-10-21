@@ -89,6 +89,8 @@ export interface Lancamento {
   forma_pagamento: string | null
   titulo_id: string | null
   ofx_fitid: string | null
+  /** Conta de cujo extrato veio o ofx_fitid (numa transferência recebida, não é a conta_id). */
+  ofx_conta_id: string | null
   observacao: string | null
   criado_em: string
   atualizado_em: string
@@ -119,10 +121,24 @@ function invalidar(qc: ReturnType<typeof useQueryClient>, ...chaves: (keyof type
   for (const c of chaves) qc.invalidateQueries({ queryKey: CHAVES[c] })
 }
 
-/** Marca a hora da gravação; criado_em só vai em registros novos (na edição, o banco mantém o original). */
-function carimbo<T extends { id?: string }>(dados: T) {
+/**
+ * Marca a hora da gravação; criado_em só vai em registros novos (na edição, o banco mantém o original).
+ * `novo` vem de quem chama, porque os formulários já mandam o id dos registros novos (gerado uma
+ * vez ao abrir: se a gravação for repetida, atualiza a mesma linha em vez de duplicar).
+ */
+function carimbo<T extends { id?: string }>(dados: T, novo = !dados.id) {
   const agora = new Date().toISOString()
-  return { ...dados, ...(dados.id ? {} : { criado_em: agora }), atualizado_em: agora } as T & { criado_em: string; atualizado_em: string }
+  return { ...dados, ...(novo ? { criado_em: agora } : {}), atualizado_em: agora } as T & { criado_em: string; atualizado_em: string }
+}
+
+/**
+ * Um lote para gravar de uma vez: ou todos novos, ou todos já existentes (nunca misturados).
+ * Assim todas as linhas têm as mesmas colunas (criado_em só nos novos) e o Supabase grava o
+ * lote numa requisição só, tudo ou nada. Importação e parcelas são só novos; edição, só existentes.
+ */
+export interface Lote<T> {
+  novos: boolean
+  lista: T[]
 }
 
 // ---- Categorias (plano de contas) ---------------------------------------------------------
@@ -199,8 +215,27 @@ function limparTitulo(d: DadosTitulo): DadosTitulo {
 export function useSalvarTitulos() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (lista: DadosTitulo[]) => db.salvarVarios<Titulo>('fin_titulos', lista.map((d) => carimbo(limparTitulo(d)))),
+    mutationFn: ({ novos, lista }: Lote<DadosTitulo>) =>
+      db.salvarVarios<Titulo>('fin_titulos', lista.map((d) => carimbo(limparTitulo(d), novos))),
     onSuccess: () => invalidar(qc, 'titulos'),
+  })
+}
+
+/**
+ * Volta um título apagado (botão Desfazer), com o mesmo id, e liga de novo a ele os pagamentos
+ * que ele tinha (ao apagar, o vínculo some). Tudo dentro da mutação, e não num onSuccess do
+ * mutate(): esse não roda se a tela já foi fechada, e o aviso com Desfazer aparece depois de sair dela.
+ */
+export function useRestaurarTitulo() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ titulo, baixas }: { titulo: Titulo; baixas: Lancamento[] }) => {
+      await db.salvarVarios<Titulo>('fin_titulos', [titulo])
+      if (baixas.length > 0) {
+        await db.salvarVarios<Lancamento>('fin_lancamentos', baixas.map((l) => ({ ...l, titulo_id: titulo.id })))
+      }
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: ['fin'] }),
   })
 }
 
@@ -229,6 +264,7 @@ export function useLancamentos() {
       (await db.listar<Lancamento>('fin_lancamentos', undefined, { coluna: 'data', crescente: false })).map((l) => ({
         ...l,
         valor: valor(l.valor),
+        ofx_conta_id: l.ofx_conta_id ?? null, // lançamentos antigos (modo local) não têm a coluna
       })),
   })
 }
@@ -255,8 +291,8 @@ function limparLancamento(d: DadosLancamento): DadosLancamento {
 export function useSalvarLancamentos() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (lista: DadosLancamento[]) =>
-      db.salvarVarios<Lancamento>('fin_lancamentos', lista.map((d) => carimbo(limparLancamento(d)))),
+    mutationFn: ({ novos, lista }: Lote<DadosLancamento>) =>
+      db.salvarVarios<Lancamento>('fin_lancamentos', lista.map((d) => carimbo(limparLancamento(d), novos))),
     onSuccess: () => invalidar(qc, 'lancamentos'),
   })
 }

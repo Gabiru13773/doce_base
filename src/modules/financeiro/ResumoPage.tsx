@@ -61,8 +61,11 @@ function PrimeiroUso() {
 
 function Painel({ contas, lancamentos }: { contas: ContaFin[]; lancamentos: Lancamento[] }) {
   const ativas = contas.filter((c) => c.ativo)
-  const saldos = ativas.map((c) => ({ conta: c, saldo: saldoConta(c, lancamentos) }))
+  // Saldo de hoje: lançamentos com data futura (agendados) ainda não contam; aparecem como "previsto".
+  const dia = hoje()
+  const saldos = ativas.map((c) => ({ conta: c, saldo: saldoConta(c, lancamentos, dia), previsto: saldoConta(c, lancamentos) }))
   const total = Math.round(saldos.reduce((s, x) => s + x.saldo, 0) * 100) / 100
+  const totalPrevisto = Math.round(saldos.reduce((s, x) => s + x.previsto, 0) * 100) / 100
 
   const mes = hoje().slice(0, 7)
   const doMes = lancamentos.filter((l) => l.data.startsWith(mes))
@@ -79,9 +82,12 @@ function Painel({ contas, lancamentos }: { contas: ContaFin[]; lancamentos: Lanc
             Saldo total hoje
           </h2>
           <p className={`text-3xl font-bold ${total < 0 ? 'text-perigo' : 'text-tinta'}`}>{moeda(total)}</p>
+          {totalPrevisto !== total && (
+            <p className="text-sm text-suave">Previsto com os lançamentos de datas futuras: {moeda(totalPrevisto)}</p>
+          )}
         </Cartao>
         <ul className="flex flex-col gap-2">
-          {saldos.map(({ conta, saldo }) => (
+          {saldos.map(({ conta, saldo, previsto }) => (
             <li key={conta.id}>
               <Link
                 to={`/financeiro/extrato?conta=${conta.id}`}
@@ -91,7 +97,10 @@ function Painel({ contas, lancamentos }: { contas: ContaFin[]; lancamentos: Lanc
                   <span className="block truncate font-semibold">{conta.nome}</span>
                   <span className="block truncate text-sm text-suave">{TIPOS_CONTA.find((t) => t.valor === conta.tipo)?.rotulo}</span>
                 </span>
-                <span className={`shrink-0 font-bold ${saldo < 0 ? 'text-perigo' : ''}`}>{moeda(saldo)}</span>
+                <span className="shrink-0 text-right">
+                  <span className={`block font-bold ${saldo < 0 ? 'text-perigo' : ''}`}>{moeda(saldo)}</span>
+                  {previsto !== saldo && <span className="block text-sm text-suave">previsto {moeda(previsto)}</span>}
+                </span>
                 <ChevronRight className="size-5 shrink-0 text-suave" aria-hidden />
               </Link>
             </li>
@@ -160,7 +169,7 @@ const vazio = (): Faixas => ({ atrasado: { qtd: 0, total: 0 }, hoje: { qtd: 0, t
 function resumirTitulos(titulos: Titulo[], lancamentos: Lancamento[]): Record<TipoTitulo, Faixas> {
   const dia = hoje()
   const limite = somarDias(dia, 7)
-  const baixas = baixasPorTitulo(lancamentos)
+  const baixas = baixasPorTitulo(lancamentos, titulos)
   const r: Record<TipoTitulo, Faixas> = { pagar: vazio(), receber: vazio() }
   for (const t of titulos) {
     const s = situacaoTitulo(t, baixas, dia)

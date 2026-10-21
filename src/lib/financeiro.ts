@@ -60,11 +60,25 @@ export interface SituacaoTitulo {
   pagoEm: string | null
 }
 
-/** Soma das baixas por título (para não percorrer os lançamentos a cada título). */
-export function baixasPorTitulo(lancamentos: LancamentoCalc[]): Map<string, { total: number; ultima: string }> {
+/** Sentido do lançamento que baixa cada tipo de título: conta a pagar sai, conta a receber entra. */
+export const SENTIDO_BAIXA = { pagar: 'saida', receber: 'entrada' } as const
+
+/**
+ * Soma das baixas por título (para não percorrer os lançamentos a cada título).
+ * Só conta o lançamento do sentido certo (saída numa conta a pagar, entrada numa a receber):
+ * uma entrada ligada a uma conta a pagar não a quita. Lançamentos de títulos que não
+ * estão em `titulos` ficam de fora.
+ */
+export function baixasPorTitulo(
+  lancamentos: LancamentoCalc[],
+  titulos: Pick<TituloCalc, 'id' | 'tipo'>[],
+): Map<string, { total: number; ultima: string }> {
+  const tipoDe = new Map(titulos.map((t) => [t.id, t.tipo]))
   const m = new Map<string, { total: number; ultima: string }>()
   for (const l of lancamentos) {
     if (!l.titulo_id || l.tipo === 'transferencia') continue
+    const tipo = tipoDe.get(l.titulo_id)
+    if (!tipo || SENTIDO_BAIXA[tipo] !== l.tipo) continue
     const atual = m.get(l.titulo_id) ?? { total: 0, ultima: '' }
     m.set(l.titulo_id, { total: atual.total + l.valor, ultima: l.data > atual.ultima ? l.data : atual.ultima })
   }
@@ -99,10 +113,12 @@ export function somarDias(data: string, dias: number): string {
 /**
  * Divide um valor em parcelas mensais. Os centavos que sobram vão na primeira parcela
  * (ex.: R$ 100 em 3× = 33,34 + 33,33 + 33,33), para a soma bater exatamente.
+ * Nunca gera parcela de R$ 0,00: com menos centavos do que vezes, faz uma parcela por centavo
+ * (o formulário já recusa esse caso antes; isto é só uma proteção).
  */
 export function parcelar(total: number, vezes: number, primeiroVencimento: string) {
-  const n = Math.max(1, Math.floor(vezes))
   const emCentavos = Math.round(total * 100)
+  const n = Math.max(1, Math.min(Math.floor(vezes), emCentavos))
   const base = Math.floor(emCentavos / n)
   const resto = emCentavos - base * n
   return Array.from({ length: n }, (_, i) => ({

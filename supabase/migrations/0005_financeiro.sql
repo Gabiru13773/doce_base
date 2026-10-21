@@ -80,10 +80,54 @@ create table if not exists public.fin_lancamentos (
   constraint fin_lancamentos_titulo_sentido check (titulo_id is null or tipo <> 'transferencia')
 );
 
-create unique index if not exists fin_lancamentos_ofx_unico on public.fin_lancamentos (conta_id, ofx_fitid) where ofx_fitid is not null;
+-- Conta de cujo extrato veio o ofx_fitid. Numa transferência recebida o lançamento fica com
+-- conta_id = conta de origem, mas o FITID é do extrato da conta de destino (a que importou).
+alter table public.fin_lancamentos
+  add column if not exists ofx_conta_id uuid references public.fin_contas(id) on delete set null;
+
+-- Uma transação do extrato entra uma vez só por conta importadora.
+-- (O índice antigo era por conta_id, o que misturava FITIDs de bancos diferentes nas transferências.)
+drop index if exists public.fin_lancamentos_ofx_unico;
+create unique index if not exists fin_lancamentos_ofx_unico2 on public.fin_lancamentos (ofx_conta_id, ofx_fitid) where ofx_fitid is not null;
 create index if not exists fin_lancamentos_data_idx on public.fin_lancamentos (data desc);
 create index if not exists fin_lancamentos_titulo_idx on public.fin_lancamentos (titulo_id) where titulo_id is not null;
+create index if not exists fin_lancamentos_conta_idx on public.fin_lancamentos (conta_id);
+create index if not exists fin_lancamentos_conta_destino_idx on public.fin_lancamentos (conta_destino_id) where conta_destino_id is not null;
+create index if not exists fin_lancamentos_categoria_idx on public.fin_lancamentos (categoria_id) where categoria_id is not null;
 create index if not exists fin_titulos_vencimento_idx on public.fin_titulos (vencimento);
+create index if not exists fin_titulos_categoria_idx on public.fin_titulos (categoria_id) where categoria_id is not null;
+
+-- A baixa de um título precisa ter o sentido dele: conta a pagar só com saída, a receber só com
+-- entrada (senão uma entrada "pagaria" uma conta a pagar). Lido com os direitos de quem grava
+-- (security invoker): a RLS de fin_titulos vale aqui também.
+create or replace function public.fin_lancamento_confere_titulo()
+returns trigger
+language plpgsql
+security invoker
+set search_path = ''
+as $$
+declare
+  tipo_titulo text;
+begin
+  if new.titulo_id is null then
+    return new;
+  end if;
+  select t.tipo into tipo_titulo from public.fin_titulos t where t.id = new.titulo_id;
+  if tipo_titulo is not null
+     and new.tipo <> case tipo_titulo when 'pagar' then 'saida' else 'entrada' end then
+    raise exception 'baixa_sentido_invalido'
+      using errcode = '23514',
+            hint = 'Conta a pagar: saída. Conta a receber: entrada.';
+  end if;
+  return new;
+end;
+$$;
+
+-- Função de gatilho: ninguém precisa chamá-la direto.
+revoke all on function public.fin_lancamento_confere_titulo() from public, anon, authenticated;
+
+create or replace trigger fin_lancamentos_confere_titulo before insert or update on public.fin_lancamentos
+  for each row execute function public.fin_lancamento_confere_titulo();
 
 create or replace trigger fin_categorias_atualizado_em before insert or update on public.fin_categorias
   for each row execute function public.set_atualizado_em();

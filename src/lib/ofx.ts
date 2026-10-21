@@ -313,12 +313,14 @@ export function lerOfx(texto: string): ExtratoOfx {
     ocorrencias.set(chave, n)
     t.fitid = `gerado-${hashTexto(`${chave}|${n}`)}`
   }
+  // Repetido dentro do arquivo = o banco não usa FITID único (alguns mandam "0", "1"… reiniciando a
+  // cada arquivo). Aí TODAS as cópias, inclusive a primeira, ganham um sufixo pelo conteúdo; senão a
+  // primeira transação de cada mês teria o mesmo FITID e pareceria "já importada".
+  const vezes = new Map<string, number>()
+  for (const t of transacoes) vezes.set(t.fitid, (vezes.get(t.fitid) ?? 0) + 1)
+  for (const t of transacoes) if (vezes.get(t.fitid) === 1) usados.add(t.fitid)
   for (const t of transacoes) {
-    if (!usados.has(t.fitid)) {
-      usados.add(t.fitid)
-      continue
-    }
-    // repetido: o primeiro fica com o original; os outros ganham um sufixo pelo conteúdo
+    if (vezes.get(t.fitid) === 1) continue
     const base = `${t.fitid}-${hashTexto(`${t.data}|${t.valor.toFixed(2)}|${simples(t.descricao)}`)}`
     let novo = base
     for (let n = 2; usados.has(novo); n++) novo = `${base}-${n}`

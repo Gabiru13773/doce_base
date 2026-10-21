@@ -186,7 +186,8 @@ describe('sugerir', () => {
     )
     expect(linhas[1].titulo?.tituloId).toBe('t-aluguel')
     expect(linhas[0].titulo).toBeNull()
-    expect(linhas[0].alternativas[0].tituloId).toBe('t-aluguel')
+    // e nem aparece como alternativa na outra (senão a mesma conta seria baixada duas vezes)
+    expect(linhas[0].alternativas.map((a) => a.tituloId)).not.toContain('t-aluguel')
   })
 
   it('aprende a categoria com o histórico', () => {
@@ -289,6 +290,7 @@ describe('paraLancamentos', () => {
       categoria_id: 'c1',
       titulo_id: 't1',
       ofx_fitid: 'a',
+      ofx_conta_id: CONTA,
       forma_pagamento: 'Pix',
       observacao: null,
     })

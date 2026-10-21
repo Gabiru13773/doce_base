@@ -26,8 +26,9 @@ export function lerNumero(texto: string): number {
   if (t.includes(',')) {
     // Vírgula é o separador decimal; pontos são de milhar.
     normal = t.replace(/\./g, '').replace(',', '.')
-  } else if (/^-?\d{1,3}(\.\d{3})+$/.test(t)) {
+  } else if (/^-?[1-9]\d{0,2}(\.\d{3})+$/.test(t)) {
     // Sem vírgula, "1.500" ou "2.000.000" é milhar (jeito brasileiro), não 1,5.
+    // Primeiro grupo começando por 0 ("0.500") nunca é milhar: é decimal com ponto.
     normal = t.replace(/\./g, '')
   }
   return /^-?\d+(\.\d+)?$/.test(normal) ? Number(normal) : NaN
