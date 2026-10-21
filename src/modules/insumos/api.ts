@@ -22,6 +22,8 @@ export interface Insumo {
   marca: string | null
   fornecedor: string | null
   estoque_minimo: number | null
+  /** Código de barras (EAN) para achar o insumo escaneando no mercado. */
+  codigo_barras?: string | null
   observacao: string | null
   ativo: boolean
   criado_em: string

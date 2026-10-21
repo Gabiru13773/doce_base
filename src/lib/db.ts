@@ -238,6 +238,10 @@ const RESTRICOES: Record<string, string> = {
   fin_lancamentos_transferencia: 'Na transferência, escolha uma conta de destino diferente da de origem.',
   fin_categorias_unica: 'Já existe uma categoria com esse nome neste grupo.',
   produtos_variacoes_formato: 'Confira as variações: o produto precisa de pelo menos uma, cada uma com nome, e os ajustes de % precisam somar menos de 100%.',
+  insumos_codigo_barras_check: 'O código de barras precisa ter só números (de 6 a 14).',
+  compra_itens_levou: 'Informe a quantidade que pegou.',
+  compra_itens_troca: 'Escolha o produto que levou no lugar.',
+  compra_itens_nao: 'Escolha o motivo de não ter levado.',
 }
 
 function erroDoBanco(error: Pick<PostgrestError, 'message' | 'code'> & { details?: string | null }): Error {

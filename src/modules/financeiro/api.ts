@@ -68,6 +68,8 @@ export interface Titulo {
   parcela: string | null
   nota_fiscal: string | null
   observacao: string | null
+  /** Compra (módulo Compras) que gerou esta conta a pagar. */
+  compra_id?: string | null
   criado_em: string
   atualizado_em: string
 }
@@ -92,6 +94,8 @@ export interface Lancamento {
   /** Conta de cujo extrato veio o ofx_fitid (numa transferência recebida, não é a conta_id). */
   ofx_conta_id: string | null
   observacao: string | null
+  /** Compra (módulo Compras) que gerou este lançamento. */
+  compra_id?: string | null
   criado_em: string
   atualizado_em: string
 }
