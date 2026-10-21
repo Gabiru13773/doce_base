@@ -1,4 +1,4 @@
-import { ArrowLeft } from 'lucide-react'
+import { ArrowLeft, ScanBarcode } from 'lucide-react'
 import { useId, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useAviso } from '../../components/Aviso'
@@ -16,6 +16,7 @@ import {
   TituloPagina,
   Vazio,
 } from '../../components/ui'
+import { faixaPrecos } from '../../lib/compras'
 import { custoAmigavel, custoPorUnidadeBase } from '../../lib/custos'
 import { lerNumero, moeda, numero, paraCampo } from '../../lib/format'
 import { ROTULO_BASE, UNIDADES_COMPRA, unidadeBase, type UnidadeCompra } from '../../lib/unidades'
@@ -30,6 +31,7 @@ import {
   type Insumo,
   type PrecoInsumo,
 } from './api'
+import { LeitorCodigo, leitorDisponivel } from '../compras/componentes/LeitorCodigo'
 
 // Valor por unidade base pede mais casas (R$ 0,0165 por g).
 const moedaFina = new Intl.NumberFormat('pt-BR', {
@@ -108,6 +110,7 @@ interface Erros {
   qtd?: string
   preco?: string
   estoque?: string
+  codigo?: string
 }
 
 function Formulario({ original }: { original?: Insumo }) {
@@ -117,6 +120,7 @@ function Formulario({ original }: { original?: Insumo }) {
   const remover = useRemoverInsumo()
   const restaurar = useRestaurarInsumo()
   const idObs = useId()
+  const { data: insumos } = useInsumos()
 
   const [nome, setNome] = useState(original?.nome ?? '')
   const [categoria, setCategoria] = useState<CategoriaInsumo>(original?.categoria ?? 'ingrediente')
@@ -127,9 +131,12 @@ function Formulario({ original }: { original?: Insumo }) {
   const [fornecedor, setFornecedor] = useState(original?.fornecedor ?? '')
   const [estoque, setEstoque] = useState(paraCampo(original?.estoque_minimo))
   const [observacao, setObservacao] = useState(original?.observacao ?? '')
+  const [codigo, setCodigo] = useState(original?.codigo_barras ?? '')
+  const [lendo, setLendo] = useState(false)
+  const podeLer = leitorDisponivel()
   // Abre "Mais opções" se já houver algo preenchido nelas.
   const [maisAberto, setMaisAberto] = useState(
-    !!(original?.marca || original?.fornecedor || original?.estoque_minimo != null || original?.observacao),
+    !!(original?.marca || original?.fornecedor || original?.estoque_minimo != null || original?.observacao || original?.codigo_barras),
   )
   // Mensagens de erro só aparecem depois da primeira tentativa de salvar.
   const [tentou, setTentou] = useState(false)
@@ -144,8 +151,12 @@ function Formulario({ original }: { original?: Insumo }) {
   if (!(qtdNum > 0)) erros.qtd = 'Informe quanto vem na embalagem'
   if (!(precoNum >= 0)) erros.preco = 'Informe o preço pago'
   if (estoque.trim() && !(estoqueNum >= 0)) erros.estoque = 'Número inválido'
+  if (codigo && !/^[0-9]{6,14}$/.test(codigo)) erros.codigo = 'O código tem de 6 a 14 números'
+  const dono = codigo ? insumos?.find((i) => i.id !== original?.id && i.codigo_barras === codigo) : undefined
+  if (!erros.codigo && dono) erros.codigo = `Esse código já está no insumo ${dono.nome}`
   const temErro = Object.keys(erros).length > 0
-  const mostrar: Erros = tentou ? erros : {}
+  // Código repetido aparece na hora (ex.: logo depois de escanear).
+  const mostrar: Erros = tentou ? erros : dono ? { codigo: erros.codigo } : {}
 
   const compraValida = qtdNum > 0 && precoNum >= 0
   const compra = { qtdCompra: qtdNum, unidadeCompra: unidade, precoCompra: precoNum }
@@ -156,7 +167,7 @@ function Formulario({ original }: { original?: Insumo }) {
     e.preventDefault()
     setTentou(true)
     if (temErro) {
-      if (erros.estoque) setMaisAberto(true)
+      if (erros.estoque || erros.codigo) setMaisAberto(true)
       return
     }
     try {
@@ -171,6 +182,8 @@ function Formulario({ original }: { original?: Insumo }) {
         fornecedor: fornecedor.trim() || null,
         estoque_minimo: estoque.trim() ? estoqueNum : null,
         observacao: observacao.trim() || null,
+        // Só manda a coluna quando há o que gravar ou apagar (compatível com banco sem a coluna).
+        ...(codigo || original?.codigo_barras ? { codigo_barras: codigo || null } : {}),
       })
       avisar({ texto: 'Insumo salvo ✓' })
       navegar('/insumos')
@@ -265,6 +278,32 @@ function Formulario({ original }: { original?: Insumo }) {
           <div className="flex flex-col gap-4 px-4 pt-1 pb-4">
             <Entrada rotulo="Marca" value={marca} onChange={(e) => setMarca(e.target.value)} />
             <Entrada rotulo="Fornecedor" placeholder="Onde você compra" value={fornecedor} onChange={(e) => setFornecedor(e.target.value)} />
+            <div className="flex items-start gap-2">
+              <div className="min-w-0 flex-1">
+                <Entrada
+                  rotulo="Código de barras"
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="off"
+                  placeholder="Só os números"
+                  value={codigo}
+                  onChange={(e) => setCodigo(e.target.value.replace(/\D/g, '').slice(0, 14))}
+                  ajuda="Para achar o insumo escaneando no mercado"
+                  erro={mostrar.codigo}
+                />
+              </div>
+              {podeLer && (
+                <Botao
+                  variante="secundario"
+                  className="mt-[1.875rem] shrink-0 px-4"
+                  onClick={() => setLendo(true)}
+                  aria-label="Ler código de barras com a câmera"
+                >
+                  <ScanBarcode className="size-5" aria-hidden />
+                  Ler
+                </Botao>
+              )}
+            </div>
             <EntradaNumero
               rotulo="Estoque mínimo"
               sufixo={base}
@@ -287,7 +326,7 @@ function Formulario({ original }: { original?: Insumo }) {
 
         {salvar.isError && <Erro mensagem={mensagemDe(salvar.error)} />}
 
-        {original && <Historico insumoId={original.id} />}
+        {original && <Historico insumoId={original.id} embalagem={{ qtd: qtdNum > 0 ? qtdNum : original.qtd_compra, unidade }} />}
 
         {original && (
           <div className="flex flex-col gap-3 pt-4">
@@ -298,6 +337,16 @@ function Formulario({ original }: { original?: Insumo }) {
           </div>
         )}
       </div>
+
+      <LeitorCodigo
+        aberto={lendo}
+        aoFechar={() => setLendo(false)}
+        aoLer={(lido) => {
+          setLendo(false)
+          setCodigo(lido.slice(0, 14))
+          setMaisAberto(true)
+        }}
+      />
 
       <BarraAcao>
         <Botao type="submit" className="flex-1" disabled={salvar.isPending}>
@@ -312,14 +361,22 @@ function custoBase(p: PrecoInsumo): number {
   return custoPorUnidadeBase({ qtdCompra: p.qtd_compra, unidadeCompra: p.unidade_compra, precoCompra: p.preco_compra })
 }
 
-function Historico({ insumoId }: { insumoId: string }) {
+function Historico({ insumoId, embalagem }: { insumoId: string; embalagem: { qtd: number; unidade: UnidadeCompra } }) {
   const { data: precos } = useHistoricoPrecos(insumoId)
   if (!precos || precos.length < 2) return null
+  const faixa = faixaPrecos(precos, embalagem)
 
   // A lista vem da mais recente para a mais antiga; "anterior" é o item seguinte.
   return (
     <section className="flex flex-col gap-2">
       <h2 className="text-lg font-bold">Histórico de preços</h2>
+      {faixa && (
+        <p className="text-sm text-suave">
+          Para {descreverEmbalagem(embalagem.qtd, embalagem.unidade)}:{' '}
+          <span className="font-semibold text-tinta">Último {moeda(faixa.ultimo)}</span> · Menor {moeda(faixa.menor)} · Maior{' '}
+          {moeda(faixa.maior)} (em {faixa.vezes} {faixa.vezes === 1 ? 'compra' : 'compras'})
+        </p>
+      )}
       <ul className="divide-y divide-borda rounded-2xl border border-borda bg-superficie">
         {precos.map((p, i) => {
           const anterior = precos[i + 1]
@@ -332,7 +389,13 @@ function Historico({ insumoId }: { insumoId: string }) {
                 <p className="font-semibold">{moeda(p.preco_compra)}</p>
                 <p className="text-sm text-suave">
                   {new Date(p.registrado_em).toLocaleDateString('pt-BR')} · {descreverEmbalagem(p.qtd_compra, p.unidade_compra)}
+                  {p.local && <> · {p.local}</>}
                 </p>
+                {p.compra_id && (
+                  <span className="mt-1 inline-block rounded-full bg-marca-clara px-2 py-0.5 text-xs font-semibold text-marca-escura">
+                    da compra
+                  </span>
+                )}
               </div>
               {variacao > 0 && (
                 <span className="rounded-full bg-alerta-claro px-2.5 py-1 text-sm font-semibold text-alerta" title="Mais caro que a compra anterior">

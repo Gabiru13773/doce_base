@@ -48,6 +48,9 @@ export default function InsumosPage() {
     return (insumos ?? []).filter((i) => {
       if (filtro !== 'todos' && i.categoria !== filtro) return false
       if (!termo) return true
+      // Código de barras: compara só os números (o leitor e a digitação podem vir com espaços).
+      const digitos = termo.replace(/\D/g, '')
+      if (digitos.length >= 3 && digitos === termo.replace(/\s/g, '') && i.codigo_barras?.includes(digitos)) return true
       return [i.nome, i.marca, i.fornecedor].some((campo) => simplificar(campo).includes(termo))
     })
   }, [insumos, busca, filtro])
@@ -70,7 +73,7 @@ export default function InsumosPage() {
         />
       ) : (
         <div className="flex flex-col gap-4">
-          <Busca valor={busca} aoMudar={setBusca} placeholder="Buscar por nome, marca ou fornecedor" />
+          <Busca valor={busca} aoMudar={setBusca} placeholder="Buscar por nome, marca ou código" />
           <div className="-mx-4 overflow-x-auto px-4 pb-1">
             <Pilulas rotulo="Filtrar por tipo" valor={filtro} aoMudar={setFiltro} opcoes={OPCOES_FILTRO} />
           </div>

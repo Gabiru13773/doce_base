@@ -37,6 +37,10 @@ export interface PrecoInsumo {
   unidade_compra: UnidadeCompra
   preco_compra: number
   registrado_em: string
+  /** Compra (lista de compras) de onde veio o preço, quando veio de uma. */
+  compra_id?: string | null
+  /** Onde foi comprado (ex.: "Atacadão"). */
+  local?: string | null
 }
 
 const CHAVE = ['insumos']
@@ -68,7 +72,13 @@ export function useHistoricoPrecos(insumoId: string | undefined) {
     enabled: !!insumoId,
     queryFn: async () =>
       (await db.listar<PrecoInsumo>('precos_insumo', { insumo_id: insumoId! }, { coluna: 'registrado_em', crescente: false })).map(
-        (p) => ({ ...p, qtd_compra: Number(p.qtd_compra), preco_compra: Number(p.preco_compra) }),
+        (p) => ({
+          ...p,
+          qtd_compra: Number(p.qtd_compra),
+          preco_compra: Number(p.preco_compra),
+          compra_id: p.compra_id ?? null,
+          local: p.local?.trim() || null,
+        }),
       ),
   })
 }
