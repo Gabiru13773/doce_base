@@ -118,7 +118,8 @@ export type AvaliacaoPreco = 'menor_de_todos' | 'acima_do_maior' | 'na_faixa'
 
 /** Compara o preço digitado com o que já foi pago: avisa quando é o menor ou passa do maior. */
 export function avaliarPreco(preco: number | null, faixa: FaixaPrecos | null): AvaliacaoPreco | null {
-  if (preco == null || !(preco > 0) || !faixa) return null
+  // Com um preço só (em geral o digitado no cadastro do insumo) ainda não há faixa para comparar.
+  if (preco == null || !(preco > 0) || !faixa || faixa.vezes < 2) return null
   if (preco < faixa.menor) return 'menor_de_todos'
   if (preco > faixa.maior) return 'acima_do_maior'
   return 'na_faixa'

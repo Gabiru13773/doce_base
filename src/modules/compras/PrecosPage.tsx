@@ -93,7 +93,7 @@ export default function PrecosPage() {
             <li key={i.id}>
               <CartaoPreco
                 insumo={i}
-                historico={historico?.get(i.id) ?? []}
+                historico={historico?.[i.id] ?? []}
                 aberto={aberto === i.id}
                 alternar={() => setAberto(aberto === i.id ? null : i.id)}
               />

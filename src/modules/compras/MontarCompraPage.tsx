@@ -216,7 +216,7 @@ function Formulario({
     const m = new Map<string, FaixaPrecos>()
     if (!historico) return m
     for (const i of insumos) {
-      const f = faixaPrecos(historico.get(i.id) ?? [], { qtd: i.qtd_compra, unidade: i.unidade_compra })
+      const f = faixaPrecos(historico[i.id] ?? [], { qtd: i.qtd_compra, unidade: i.unidade_compra })
       if (f) m.set(i.id, f)
     }
     return m
@@ -499,6 +499,8 @@ function LinhaInsumo({
   marcados?: DadosItemCompra[]
 }) {
   const selecionado = qtd > 0
+  // Já marcado no mercado: não entra de novo (viraria um segundo item igual na compra).
+  const bloqueado = !selecionado && !!marcados?.length
   const conteudo = (
     <>
       <span className="block truncate font-semibold">{i.nome}</span>
@@ -526,7 +528,7 @@ function LinhaInsumo({
       }`}
     >
       {/* Tocar no item fora da lista coloca 1 pacote; depois, a quantidade muda só no + e −. */}
-      {selecionado ? (
+      {selecionado || bloqueado ? (
         <div className="min-h-12 min-w-0 flex-1 py-1">{conteudo}</div>
       ) : (
         <button type="button" onClick={() => aoMudar(1)} className="min-h-12 min-w-0 flex-1 py-1 text-left">
@@ -549,16 +551,20 @@ function LinhaInsumo({
             </span>
           </>
         )}
-        <button
-          type="button"
-          aria-label={`Mais ${i.nome}`}
-          onClick={() => aoMudar(qtd + 1)}
-          className={`flex size-12 items-center justify-center rounded-xl ${
-            selecionado ? 'bg-marca text-white active:bg-marca-escura' : 'border border-borda bg-superficie text-marca active:bg-marca-clara'
-          }`}
-        >
-          <Plus className="size-5" aria-hidden />
-        </button>
+        {bloqueado ? (
+          <Lock className="mx-3 size-5 text-suave" aria-label="Já está na compra" />
+        ) : (
+          <button
+            type="button"
+            aria-label={`Mais ${i.nome}`}
+            onClick={() => aoMudar(qtd + 1)}
+            className={`flex size-12 items-center justify-center rounded-xl ${
+              selecionado ? 'bg-marca text-white active:bg-marca-escura' : 'border border-borda bg-superficie text-marca active:bg-marca-clara'
+            }`}
+          >
+            <Plus className="size-5" aria-hidden />
+          </button>
+        )}
       </div>
     </li>
   )

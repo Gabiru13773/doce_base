@@ -287,7 +287,7 @@ function CompraAberta({ compra, itens }: { compra: Compra; itens: ItemCompra[] }
             <li key={i.id}>
               <CartaoItem
                 item={i}
-                historico={historico?.get((i.status === 'substituido' ? i.sub_insumo_id : i.insumo_id) ?? '')}
+                historico={historico?.[(i.status === 'substituido' ? i.sub_insumo_id : i.insumo_id) ?? '']}
                 aoAcao={aoAcao}
               />
             </li>
@@ -310,7 +310,7 @@ function CompraAberta({ compra, itens }: { compra: Compra; itens: ItemCompra[] }
         <FolhaPegar
           key={folha.item.id}
           item={folha.item}
-          historico={folha.item.insumo_id ? historico?.get(folha.item.insumo_id) : undefined}
+          historico={folha.item.insumo_id ? historico?.[folha.item.insumo_id] : undefined}
           edicao={folha.edicao}
           aoConfirmar={(novo) => confirmarItem(novo, folha.novo)}
           aoFechar={() => setFolha(null)}

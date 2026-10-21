@@ -298,7 +298,7 @@ export function FolhaTrocar({
   item: DadosItemCompra
   /** todos os insumos ativos (o próprio item fica de fora da escolha) */
   insumos: Insumo[]
-  historicoPorInsumo: Map<string, PrecoHistorico[]> | undefined
+  historicoPorInsumo: Record<string, PrecoHistorico[]> | undefined
   edicao: boolean
   aoConfirmar: (item: DadosItemCompra) => void
   aoFechar: () => void
@@ -308,7 +308,7 @@ export function FolhaTrocar({
     inicialSub ? { id: inicialSub.id, nome: inicialSub.nome } : edicao && item.sub_nome ? { id: item.sub_insumo_id, nome: item.sub_nome } : null,
   )
   const [escolhendo, setEscolhendo] = useState(!sub)
-  const historico = sub?.id ? historicoPorInsumo?.get(sub.id) : undefined
+  const historico = sub?.id ? historicoPorInsumo?.[sub.id] : undefined
   const c = useCamposCompra(item, historico, edicao)
   const m0 = motivoInicial(edicao ? item.motivo : null, MOTIVOS_TROCA)
   const [ficha, setFicha] = useState<string | null>(m0.ficha)

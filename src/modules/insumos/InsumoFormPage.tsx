@@ -64,11 +64,14 @@ function mensagemDe(e: unknown): string {
 export default function InsumoFormPage() {
   const { id } = useParams()
   const editando = !!id && id !== 'novo'
-  const { data: insumos, isLoading, isError, error, refetch } = useInsumos()
+  const { data: insumos, isLoading, isError, error, refetch, isFetchedAfterMount, fetchStatus } = useInsumos()
 
   if (!editando) return <Formulario />
 
-  if (isLoading) return <Carregando />
+  // Espera a versão atual da nuvem (o cache do aparelho pode estar atrasado, ex.: o custo mudou ao
+  // finalizar uma compra no outro celular): o formulário começa com esses valores e, ao salvar,
+  // gravaria o preço antigo de volta. Sem internet (busca pausada), usa o que tem.
+  if (isLoading || (!isFetchedAfterMount && fetchStatus === 'fetching')) return <Carregando />
   if (isError) return <Erro mensagem={mensagemDe(error)} tentarDeNovo={() => refetch()} />
 
   const insumo = insumos?.find((i) => i.id === id)

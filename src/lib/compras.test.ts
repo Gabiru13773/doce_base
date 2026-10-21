@@ -202,11 +202,11 @@ describe('avaliarPreco', () => {
     expect(avaliarPreco(4.5, faixa)).toBe('na_faixa')
     expect(avaliarPreco(6, faixa)).toBe('na_faixa')
   })
-  it('uma compra só (menor = maior): igual fica na faixa', () => {
+  it('um preço só (o do cadastro): ainda não dá aviso de menor/maior', () => {
     const uma: FaixaPrecos = { ultimo: 5, menor: 5, maior: 5, vezes: 1 }
-    expect(avaliarPreco(5, uma)).toBe('na_faixa')
-    expect(avaliarPreco(4.99, uma)).toBe('menor_de_todos')
-    expect(avaliarPreco(5.01, uma)).toBe('acima_do_maior')
+    expect(avaliarPreco(5, uma)).toBeNull()
+    expect(avaliarPreco(4.99, uma)).toBeNull()
+    expect(avaliarPreco(5.01, uma)).toBeNull()
   })
   it('sem preço, preço zero ou sem faixa → null', () => {
     expect(avaliarPreco(null, faixa)).toBeNull()

@@ -394,7 +394,8 @@ export function useHistoricoPorInsumo() {
     queryKey: ['precos_insumo', 'todos'],
     queryFn: async () => {
       const linhas = await db.listar<PrecoGuardado>('precos_insumo', undefined, { coluna: 'registrado_em' })
-      const mapa = new Map<string, PrecoGuardado[]>()
+      // Objeto simples (e não Map): o cache salvo no aparelho vira JSON e um Map voltaria vazio e quebrado.
+      const mapa: Record<string, PrecoGuardado[]> = {}
       for (const l of linhas) {
         const p = {
           ...l,
@@ -404,7 +405,7 @@ export function useHistoricoPorInsumo() {
           compra_id: l.compra_id ?? null,
           local: l.local ?? null,
         }
-        mapa.set(l.insumo_id, [...(mapa.get(l.insumo_id) ?? []), p])
+        ;(mapa[l.insumo_id] ??= []).push(p)
       }
       return mapa
     },
@@ -447,16 +448,14 @@ export function useFinalizarCompra() {
       if (d.historico.length > 0) {
         await db.salvarVarios('precos_insumo', d.historico.map((h) => ({ ...h, registrado_em: agora, compra_id: d.compra.id, local })))
       }
-      if (d.insumos.length > 0) {
-        await db.salvarVarios<Insumo>(
-          'insumos',
-          d.insumos.map(({ criado_em: _c, ...i }) => ({
-            ...i,
-            qtd_compra: Math.round(i.qtd_compra * 1000) / 1000,
-            preco_compra: centavos(i.preco_compra),
-            atualizado_em: agora,
-          })) as Insumo[],
-        )
+      // Só os campos do custo: não desfaz o que mudou no insumo em outro aparelho (nome, marca…).
+      for (const i of d.insumos) {
+        await db.atualizar<Insumo>('insumos', i.id, {
+          qtd_compra: Math.round(i.qtd_compra * 1000) / 1000,
+          unidade_compra: i.unidade_compra,
+          preco_compra: centavos(i.preco_compra),
+          atualizado_em: agora,
+        })
       }
       // Numa nova tentativa a forma de pagamento pode ter mudado (ex.: era "a pagar" em 3 vezes,
       // agora "paguei agora"): apaga o que uma tentativa anterior desta compra gravou e não vale mais.
