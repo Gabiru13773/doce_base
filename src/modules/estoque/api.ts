@@ -67,14 +67,12 @@ function normalizarProducao(p: Producao): Producao {
   return { ...p, lotes: Number(p.lotes), rendimento: Number(p.rendimento), custo_total: num(p.custo_total) }
 }
 
-function carimbar<T extends { quantidade?: number }>(linhas: T[]) {
+/** Arredonda como o banco e tira as linhas que ficam zeradas (o banco recusa quantidade 0). */
+function carimbar<T extends { quantidade: number }>(linhas: T[]) {
   const agora = new Date().toISOString()
-  return linhas.map((l) => ({
-    ...l,
-    ...(l.quantidade !== undefined ? { quantidade: milesimos(l.quantidade) } : {}),
-    criado_em: agora,
-    atualizado_em: agora,
-  }))
+  return linhas
+    .map((l) => ({ ...l, quantidade: milesimos(l.quantidade), criado_em: agora, atualizado_em: agora }))
+    .filter((l) => l.quantidade !== 0)
 }
 
 function invalidar(qc: ReturnType<typeof useQueryClient>) {
@@ -104,7 +102,7 @@ export function useSalvarMovimentos() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (lista: DadosMovimento[]) =>
-      db.salvarVarios<Movimento>('estoque_movimentos', carimbar(lista.filter((m) => m.quantidade !== 0)) as Movimento[]),
+      db.salvarVarios<Movimento>('estoque_movimentos', carimbar(lista) as Movimento[]),
     onSuccess: () => invalidar(qc),
   })
 }
@@ -159,8 +157,8 @@ export function useRegistrarProducao() {
       const ids = new Set(movimentos.map((m) => m.id))
       for (const m of await db.listar<Movimento>('estoque_movimentos', { producao_id: producao.id }))
         if (!ids.has(m.id)) await db.remover('estoque_movimentos', m.id)
-      const linhas = movimentos.filter((m) => m.quantidade !== 0).map((m) => ({ ...m, producao_id: producao.id, data: producao.data }))
-      if (linhas.length > 0) await db.salvarVarios<Movimento>('estoque_movimentos', carimbar(linhas) as Movimento[])
+      const linhas = carimbar(movimentos.map((m) => ({ ...m, producao_id: producao.id, data: producao.data })))
+      if (linhas.length > 0) await db.salvarVarios<Movimento>('estoque_movimentos', linhas as Movimento[])
     },
     onSettled: () => invalidar(qc),
   })

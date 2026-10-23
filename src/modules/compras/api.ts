@@ -482,10 +482,11 @@ export function useFinalizarCompra() {
       const estoqueIds = new Set(estoque.map((e) => e.id))
       for (const m of await db.listar<{ id: string }>('estoque_movimentos', { compra_id: d.compra.id }))
         if (!estoqueIds.has(m.id)) await db.remover('estoque_movimentos', m.id)
-      if (estoque.length > 0) {
+      const entradas = estoque.filter((e) => Math.round(e.quantidade * 1000) !== 0)
+      if (entradas.length > 0) {
         await db.salvarVarios(
           'estoque_movimentos',
-          estoque.map((e) => ({
+          entradas.map((e) => ({
             id: e.id,
             data: d.compra.data,
             item_tipo: 'insumo',
