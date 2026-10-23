@@ -425,6 +425,8 @@ export interface DadosFinalizacao {
   /** pago na hora: lançamento(s) de saída; a pagar: conta(s) a pagar. Ids gerados uma vez na tela. */
   lancamentos: (DadosLancamento & { id: string })[]
   titulos: (DadosTitulo & { id: string })[]
+  /** entradas no estoque (uma por insumo, quantidade na unidade base). Ids gerados uma vez na tela. */
+  estoque?: { id: string; insumo_id: string; quantidade: number }[]
 }
 
 /**
@@ -475,6 +477,31 @@ export function useFinalizarCompra() {
           d.lancamentos.map((l) => ({ ...l, valor: centavos(l.valor), compra_id: d.compra.id, criado_em: agora, atualizado_em: agora })),
         )
       }
+      // Estoque: apaga entradas de uma tentativa anterior que não valem mais e grava as de agora.
+      const estoque = d.estoque ?? []
+      const estoqueIds = new Set(estoque.map((e) => e.id))
+      for (const m of await db.listar<{ id: string }>('estoque_movimentos', { compra_id: d.compra.id }))
+        if (!estoqueIds.has(m.id)) await db.remover('estoque_movimentos', m.id)
+      if (estoque.length > 0) {
+        await db.salvarVarios(
+          'estoque_movimentos',
+          estoque.map((e) => ({
+            id: e.id,
+            data: d.compra.data,
+            item_tipo: 'insumo',
+            insumo_id: e.insumo_id,
+            receita_id: null,
+            quantidade: Math.round(e.quantidade * 1000) / 1000,
+            origem: 'compra',
+            producao_id: null,
+            compra_id: d.compra.id,
+            observacao: null,
+            feito_por: null,
+            criado_em: agora,
+            atualizado_em: agora,
+          })),
+        )
+      }
       const { criado_em: _c, ...compra } = d.compra
       // Linha inteira: um upsert parcial falharia no Supabase (nome é obrigatório no insert).
       return db.salvar<Compra>('compras', {
@@ -486,7 +513,7 @@ export function useFinalizarCompra() {
       } as Compra)
     },
     onSettled: () => {
-      for (const k of [CHAVE, ['insumos'], ['precos_insumo'], ['fin']]) qc.invalidateQueries({ queryKey: k })
+      for (const k of [CHAVE, ['insumos'], ['precos_insumo'], ['fin'], ['estoque']]) qc.invalidateQueries({ queryKey: k })
     },
   })
 }

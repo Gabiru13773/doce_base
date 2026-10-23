@@ -39,6 +39,8 @@ export interface Receita extends ReceitaCalculo {
   utensilios: string | null
   pontos_atencao: string | null
   validade: string | null
+  /** Estoque mínimo do preparado pronto, na unidade base do rendimento (g, ml ou un). */
+  estoque_minimo?: number | null
   ativo: boolean
   criado_em: string
   atualizado_em: string
@@ -63,6 +65,7 @@ function normalizar(r: Receita): Receita {
     pct_taxas: num(r.pct_taxas),
     pct_margem: num(r.pct_margem),
     pv_manual: num(r.pv_manual),
+    estoque_minimo: num(r.estoque_minimo),
     // Descarta itens malformados (dados antigos ou do modo local) para não virar NaN no preço.
     itens: (Array.isArray(r.itens) ? r.itens : [])
       .filter((i: ItemReceita) => !!i && (i.tipo === 'insumo' || i.tipo === 'receita') && typeof i.id === 'string')
