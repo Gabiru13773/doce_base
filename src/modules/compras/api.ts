@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useMemo, useSyncExternalStore } from 'react'
+import { milesimos } from '../../lib/estoque'
 import { centavos, mesclarPendentes, type ItemCompraCalc, type PrecoHistorico } from '../../lib/compras'
 import { db, novoId } from '../../lib/db'
 import { modoLocal } from '../../lib/supabase'
@@ -44,6 +45,12 @@ export const MOTIVOS_NAO = ['Não tinha', 'Preço alto', 'Não encontrei', 'Aind
 export const MOTIVOS_TROCA = ['Preço alto', 'Não tinha a marca', 'Embalagem melhor']
 
 const CHAVE = ['compras']
+
+/** Data de hoje no fuso do aparelho (AAAA-MM-DD). */
+function hojeLocal(): string {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
 const chaveItens = (compraId: string) => ['compras', 'itens', compraId]
 
 // O Supabase devolve colunas "numeric" como texto.
@@ -127,12 +134,18 @@ export function useRemoverCompra() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async (id: string) => {
-      // No Supabase os itens saem juntos (on delete cascade); no modo local fazemos igual.
-      if (modoLocal) for (const i of await db.listar<ItemCompra>('compra_itens', { compra_id: id })) await db.remover('compra_itens', i.id)
+      // No Supabase os itens (e entradas no estoque) saem juntos (on delete cascade); no modo local fazemos igual.
+      if (modoLocal) {
+        for (const i of await db.listar<ItemCompra>('compra_itens', { compra_id: id })) await db.remover('compra_itens', i.id)
+        for (const m of await db.listar<{ id: string }>('estoque_movimentos', { compra_id: id })) await db.remover('estoque_movimentos', m.id)
+      }
       await db.remover('compras', id)
       fila.descartarCompra(id)
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: CHAVE }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: CHAVE })
+      qc.invalidateQueries({ queryKey: ['estoque'] })
+    },
   })
 }
 
@@ -478,21 +491,22 @@ export function useFinalizarCompra() {
         )
       }
       // Estoque: apaga entradas de uma tentativa anterior que não valem mais e grava as de agora.
-      const estoque = d.estoque ?? []
+      const estoque = (d.estoque ?? []).map((e) => ({ ...e, quantidade: milesimos(e.quantidade) })).filter((e) => e.quantidade !== 0)
       const estoqueIds = new Set(estoque.map((e) => e.id))
       for (const m of await db.listar<{ id: string }>('estoque_movimentos', { compra_id: d.compra.id }))
         if (!estoqueIds.has(m.id)) await db.remover('estoque_movimentos', m.id)
-      const entradas = estoque.filter((e) => Math.round(e.quantidade * 1000) !== 0)
+      const entradas = estoque
       if (entradas.length > 0) {
         await db.salvarVarios(
           'estoque_movimentos',
           entradas.map((e) => ({
             id: e.id,
-            data: d.compra.data,
+            // dia em que a compra foi finalizada (a lista pode ter sido montada dias antes)
+            data: hojeLocal(),
             item_tipo: 'insumo',
             insumo_id: e.insumo_id,
             receita_id: null,
-            quantidade: Math.round(e.quantidade * 1000) / 1000,
+            quantidade: e.quantidade,
             origem: 'compra',
             producao_id: null,
             compra_id: d.compra.id,

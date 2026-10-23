@@ -1,8 +1,11 @@
-import { Calculator, ChefHat, ChevronRight, CloudOff, CookingPot, Gift, Package, ShoppingCart, type LucideIcon } from 'lucide-react'
+import { AlertTriangle, Calculator, ChefHat, ChevronRight, CloudOff, CookingPot, Gift, ListPlus, Package, ShoppingCart, type LucideIcon } from 'lucide-react'
+import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { Cartao } from '../../components/ui'
+import { precisaComprar } from '../../lib/estoque'
 import { modoLocal } from '../../lib/supabase'
 import { useCompras } from '../compras/api'
+import { useSaldos } from '../estoque/api'
 import { useInsumos } from '../insumos/api'
 import { useProdutos } from '../produtos/api'
 import { useReceitas } from '../receitas/api'
@@ -18,7 +21,6 @@ interface Atalho {
   titulo: string
   descricao: string
   icone: LucideIcon
-  emBreve?: boolean
 }
 
 export default function InicioPage() {
@@ -35,6 +37,13 @@ export default function InicioPage() {
   // A mais recente em andamento (useCompras já vem da mais nova para a mais antiga).
   const compraAberta = compras.data?.find((c) => c.status === 'aberta')
   const qtdProdutos = produtos.data?.length
+  const saldos = useSaldos()
+  // Insumos abaixo do mínimo (ou com saldo negativo).
+  const acabando = useMemo(() => {
+    if (!insumos.data || !saldos.data) return 0
+    const s = saldos.data.insumos
+    return insumos.data.filter((i) => i.ativo !== false && precisaComprar(s[i.id], i.estoque_minimo)).length
+  }, [insumos.data, saldos.data])
   // Primeiros passos somem só quando já houver insumos, receitas E produtos.
   const mostrarPrimeirosPassos =
     insumos.isSuccess &&
@@ -64,7 +73,7 @@ export default function InicioPage() {
         : `${qtdProdutos} ${qtdProdutos === 1 ? 'cadastrado' : 'cadastrados'}`
 
   const atalhos: Atalho[] = [
-    { para: '/producao', titulo: 'Registrar produção', descricao: 'O que saiu do forno', icone: CookingPot, emBreve: true },
+    { para: '/producao/nova', titulo: 'Registrar produção', descricao: 'O que saiu do forno', icone: CookingPot },
     { para: '/insumos', titulo: 'Insumos', descricao: descricaoInsumos, icone: Package },
     { para: '/receitas', titulo: 'Receitas', descricao: descricaoReceitas, icone: ChefHat },
     { para: '/produtos', titulo: 'Produtos', descricao: descricaoProdutos, icone: Gift },
@@ -115,6 +124,31 @@ export default function InicioPage() {
         )
       )}
 
+      {acabando > 0 && (
+        <section
+          aria-label="Estoque acabando"
+          className="flex flex-col gap-1 rounded-2xl border border-perigo/30 bg-perigo-claro/60 p-2"
+        >
+          <Link to="/estoque" className="flex min-h-12 items-center gap-3 rounded-xl px-2 py-1 active:bg-perigo-claro">
+            <AlertTriangle className="size-6 shrink-0 text-perigo" aria-hidden />
+            <span className="min-w-0 flex-1">
+              <span className="block font-semibold">
+                {acabando} {acabando === 1 ? 'insumo acabando' : 'insumos acabando'}
+              </span>
+              <span className="block text-sm text-suave">Toque para ver o estoque</span>
+            </span>
+            <ChevronRight className="size-5 shrink-0 text-suave" aria-hidden />
+          </Link>
+          <Link
+            to={compraAberta ? `/compras/${compraAberta.id}/lista?sugerir=1` : '/compras/nova?sugerir=1'}
+            className="flex min-h-12 items-center justify-center gap-2 rounded-xl bg-superficie px-4 font-semibold text-marca active:bg-marca-clara"
+          >
+            <ListPlus className="size-5" aria-hidden />
+            {compraAberta ? 'Pôr na lista de compras' : 'Montar lista de compras'}
+          </Link>
+        </section>
+      )}
+
       <nav aria-label="Atalhos" className="grid grid-cols-2 gap-3 [&>a:last-child:nth-child(odd)]:col-span-2">
         {atalhos.map((a) => (
           <Link
@@ -122,11 +156,6 @@ export default function InicioPage() {
             to={a.para}
             className="relative flex min-h-[104px] flex-col gap-2 rounded-2xl border border-borda bg-superficie p-4 shadow-sm transition-colors active:bg-marca-clara"
           >
-            {a.emBreve && (
-              <span className="absolute top-3 right-3 rounded-full bg-creme px-2 py-0.5 text-xs font-medium text-suave">
-                em breve
-              </span>
-            )}
             <span className="flex size-11 items-center justify-center rounded-xl bg-marca-clara text-marca">
               <a.icone className="size-6" aria-hidden />
             </span>

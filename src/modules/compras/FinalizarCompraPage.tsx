@@ -5,9 +5,11 @@ import { useAviso } from '../../components/Aviso'
 import { BarraAcao, Botao, Carregando, Cartao, Entrada, EntradaNumero, Erro, Pilulas, Selecao, TituloPagina, Vazio } from '../../components/ui'
 import { historicoDaCompra, insumoComprado, levou, mudancasDeCusto, resumoCompra, totalItem, type MudancaCusto } from '../../lib/compras'
 import { novoId } from '../../lib/db'
+import { entradasDaCompra } from '../../lib/estoque'
 import { parcelar } from '../../lib/financeiro'
 import { lerNumero, moeda, numero, paraCampo, pct } from '../../lib/format'
-import type { UnidadeCompra } from '../../lib/unidades'
+import { textoQuantidade } from '../../lib/receitas'
+import { unidadeBase, type UnidadeCompra } from '../../lib/unidades'
 import { FORMAS_PAGAMENTO, useCategoriasFin, useContasFin, type CategoriaFin, type ContaFin, type DadosLancamento, type DadosTitulo } from '../financeiro/api'
 import { Interruptor, Voltar } from '../financeiro/componentes/Comum'
 import { SeletorCategoria, SeletorConta } from '../financeiro/componentes/Seletores'
@@ -16,7 +18,7 @@ import { useInsumos, type Insumo } from '../insumos/api'
 import { useCompras, useFilaCompra, useFinalizarCompra, useItensCompra, type Compra, type DadosItemCompra } from './api'
 
 // Finalizar a compra: confere o carrinho, manda os preços para o histórico dos insumos,
-// atualiza o custo (se a pessoa quiser) e lança no Financeiro (pago agora ou a pagar).
+// atualiza o custo (se a pessoa quiser), dá entrada no estoque e lança no Financeiro (pago agora ou a pagar).
 
 type Modo = 'agora' | 'depois'
 
@@ -167,6 +169,16 @@ function Formulario({
   const carrinho = useMemo(() => itens.filter(levou), [itens])
   const linhasHistorico = useMemo(() => historicoDaCompra(itens), [itens])
   const mudancas = useMemo(() => mudancasDeCusto(linhasHistorico, insumos), [linhasHistorico, insumos])
+  const entradas = useMemo(() => entradasDaCompra(itens, insumos), [itens, insumos])
+  // Levados que não entram no estoque: sem insumo cadastrado ou embalagem em outro tipo de unidade.
+  const foraDoEstoque = useMemo(() => {
+    const entram = new Set(entradas.map((e) => e.insumo_id))
+    return carrinho.filter((i) => {
+      if (!(i.qtd_comprada != null && i.qtd_comprada > 0)) return false
+      const id = insumoComprado(i)
+      return !id || !entram.has(id)
+    })
+  }, [carrinho, entradas])
 
   // Ids gerados uma vez por tela: tentar de novo depois de uma falha no meio atualiza as mesmas
   // linhas em vez de duplicar (a gravação é por id).
@@ -174,10 +186,12 @@ function Formulario({
   const [idLancamento] = useState(() => novoId())
   const [idsParcelas] = useState(() => Array.from({ length: MAX_PARCELAS }, () => novoId()))
   const [idGrupo] = useState(() => novoId())
+  const [idsEstoque] = useState(() => new Map<string, string>())
 
   const [total, setTotal] = useState(() => paraCampo(resumo.total))
   const [naoAtualizar, setNaoAtualizar] = useState<Set<string>>(() => new Set())
   const [lancar, setLancar] = useState(true)
+  const [darEntrada, setDarEntrada] = useState(true)
   const [modo, setModo] = useState<Modo>('agora')
   const [categoriaId, setCategoriaId] = useState<string | null>(() => {
     const ids = carrinho.map(insumoComprado)
@@ -292,8 +306,20 @@ function Formulario({
       )
     }
 
+    // Uma linha por insumo, com id fixo por insumo (tentar de novo não duplica). Desligado: nada entra.
+    const estoque = darEntrada
+      ? entradas.map((e) => {
+          let idLinha = idsEstoque.get(e.insumo_id)
+          if (!idLinha) {
+            idLinha = novoId()
+            idsEstoque.set(e.insumo_id, idLinha)
+          }
+          return { id: idLinha, ...e }
+        })
+      : []
+
     try {
-      await finalizar.mutateAsync({ compra, total: totalNum, historico, insumos: insumosNovos, lancamentos, titulos })
+      await finalizar.mutateAsync({ compra, total: totalNum, historico, insumos: insumosNovos, lancamentos, titulos, estoque })
       const contaUsada = lancar ? (modo === 'agora' ? contaId : contaTitulo) : null
       if (contaUsada) gravarUltimaConta(contaUsada)
       avisar({ texto: 'Compra finalizada ✓' })
@@ -418,7 +444,46 @@ function Formulario({
           )}
         </section>
 
-        {/* 3. Financeiro */}
+        {/* 3. Estoque */}
+        <section className="flex flex-col gap-3">
+          <h2 className="text-lg font-bold">Estoque</h2>
+          {entradas.length > 0 ? (
+            <>
+              <Interruptor
+                ligado={darEntrada}
+                aoMudar={setDarEntrada}
+                rotulo="Dar entrada no estoque"
+                texto={darEntrada ? 'O que você comprou soma no que tem em casa' : 'O estoque fica como está'}
+              />
+              {darEntrada && (
+                <ul className="divide-y divide-borda overflow-hidden rounded-2xl border border-borda bg-superficie">
+                  {entradas.map((e) => {
+                    const ins = insumos.find((x) => x.id === e.insumo_id)
+                    return (
+                      <li key={e.insumo_id} className="flex items-center justify-between gap-3 px-4 py-2">
+                        <span className="min-w-0 flex-1 truncate">{ins?.nome ?? 'Insumo'}</span>
+                        <span className="shrink-0 font-semibold text-ok">
+                          + {ins ? textoQuantidade(e.quantidade, unidadeBase(ins.unidade_compra)) : numero(e.quantidade, 3)}
+                        </span>
+                      </li>
+                    )
+                  })}
+                </ul>
+              )}
+            </>
+          ) : (
+            <p className="text-suave">Nada desta compra entra no estoque.</p>
+          )}
+          {foraDoEstoque.length > 0 && (darEntrada || entradas.length === 0) && (
+            <p className="text-sm text-suave">
+              Fora do estoque: {foraDoEstoque.map((i) => (i.status === 'substituido' ? i.sub_nome || i.nome : i.nome)).join(', ')}
+              {' '}— sem insumo cadastrado ou comprado numa unidade diferente da do insumo (ex.: insumo em unidades, comprado em kg).
+              Se precisar, acerte depois numa contagem.
+            </p>
+          )}
+        </section>
+
+        {/* 4. Financeiro */}
         <section className="flex flex-col gap-4">
           <h2 className="text-lg font-bold">Financeiro</h2>
           <Interruptor

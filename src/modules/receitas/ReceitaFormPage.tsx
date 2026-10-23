@@ -16,11 +16,14 @@ import {
   TituloPagina,
   Vazio,
 } from '../../components/ui'
+import { milesimos } from '../../lib/estoque'
 import { lerNumero, moeda, numero, paraCampo, pct } from '../../lib/format'
 import { custoMaoDeObra, type ConfigPrecificacao } from '../../lib/precificacao'
 import {
   calcularCusto,
+  plural,
   precificar,
+  textoQuantidade,
   textoRendimento,
   unidadeBaseReceita,
   usadaEm,
@@ -143,6 +146,8 @@ interface Campos {
   utensilios: string
   pontos: string
   validade: string
+  /** estoque mínimo do preparado pronto, na unidade base do rendimento */
+  estoqueMinimo: string
 }
 
 function camposDe(d: DadosReceita): Campos {
@@ -165,6 +170,7 @@ function camposDe(d: DadosReceita): Campos {
     utensilios: d.utensilios ?? '',
     pontos: d.pontos_atencao ?? '',
     validade: d.validade ?? '',
+    estoqueMinimo: paraCampo(d.estoque_minimo),
   }
 }
 
@@ -193,6 +199,7 @@ interface Erros {
   tempoForno?: string
   tempoDescanso?: string
   temperatura?: string
+  estoqueMinimo?: string
 }
 
 const ABA_DO_ERRO: Record<keyof Erros, Aba> = {
@@ -208,6 +215,7 @@ const ABA_DO_ERRO: Record<keyof Erros, Aba> = {
   tempoForno: 'preparo',
   tempoDescanso: 'preparo',
   temperatura: 'preparo',
+  estoqueMinimo: 'preparo',
 }
 
 function validar(c: Campos): Erros {
@@ -226,6 +234,7 @@ function validar(c: Campos): Erros {
   if (invalido(c.tempoDescanso)) e.tempoDescanso = 'Número inválido'
   if (invalido(c.temperatura)) e.temperatura = 'Número inválido'
   else if ((opcional(c.temperatura) ?? 0) > 400) e.temperatura = 'Use até 400 °C'
+  if (invalido(c.estoqueMinimo)) e.estoqueMinimo = 'Número inválido'
   return e
 }
 
@@ -308,6 +317,7 @@ function Formulario({ original, contexto, config, receitasAtivas, insumosAtivos 
       if (erros.pctFixos || erros.pctTaxas || erros.pctMargem) setMaisAberto(true)
       return
     }
+    const estoqueMinimo = opcional(c.estoqueMinimo)
     try {
       await salvar.mutateAsync({
         id: original?.id,
@@ -329,6 +339,10 @@ function Formulario({ original, contexto, config, receitasAtivas, insumosAtivos 
         utensilios: c.utensilios.trim() || null,
         pontos_atencao: c.pontos.trim() || null,
         validade: c.validade.trim() || null,
+        // Só manda a coluna quando há o que gravar ou apagar (compatível com banco sem a 0007).
+        ...(c.estoqueMinimo.trim() || original?.estoque_minimo != null
+          ? { estoque_minimo: estoqueMinimo == null ? null : milesimos(estoqueMinimo) }
+          : {}),
       })
       avisar({ texto: 'Receita salva ✓' })
       navegar('/receitas')
@@ -792,6 +806,28 @@ function AbaPreco({
   )
 }
 
+/** Estoque mínimo do preparado pronto (opcional), na unidade base do rendimento. */
+function EstoqueMinimo({ c, mudar, erro }: { c: Campos; mudar: Mudar; erro?: string }) {
+  const base = unidadeBaseReceita({ rendimento_unidade: c.rendUnidade })
+  const qtd = opcional(c.estoqueMinimo)
+  const sufixo = base === 'un' ? plural(c.rendNome.trim() || 'unidade', qtd ?? 2) : base
+  const ajuda =
+    qtd != null && qtd > 0 && base !== 'un' && qtd >= 1000
+      ? `${textoQuantidade(qtd, base)} — avisaremos quando tiver menos que isso pronto`
+      : 'Opcional. Avisaremos quando tiver menos que isso pronto no estoque'
+  return (
+    <EntradaNumero
+      rotulo="Estoque mínimo do preparado"
+      sufixo={sufixo}
+      placeholder={base === 'un' ? 'Ex.: 10' : 'Ex.: 500'}
+      value={c.estoqueMinimo}
+      onChange={(e) => mudar('estoqueMinimo', e.target.value)}
+      erro={erro}
+      ajuda={ajuda}
+    />
+  )
+}
+
 // ---- Aba Preparo (ficha técnica) -----------------------------------------------------------
 
 function AbaPreparo({
@@ -858,6 +894,8 @@ function AbaPreparo({
           className={classeTexto}
         />
       </Campo>
+
+      <EstoqueMinimo c={c} mudar={mudar} erro={erros.estoqueMinimo} />
 
       <Entrada
         rotulo="Validade e conservação"

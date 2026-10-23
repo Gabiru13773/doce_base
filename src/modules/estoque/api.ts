@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useMemo } from 'react'
-import { calcularSaldos, milesimos, type ItemTipo, type OrigemMovimento, type Saldos } from '../../lib/estoque'
+import { ajusteContagem, calcularSaldos, milesimos, type ItemTipo, type OrigemMovimento, type Saldos } from '../../lib/estoque'
 import { db } from '../../lib/db'
 import { modoLocal } from '../../lib/supabase'
 
@@ -75,6 +75,11 @@ function carimbar<T extends { quantidade: number }>(linhas: T[]) {
     .filter((l) => l.quantidade !== 0)
 }
 
+/** Mais recente primeiro: pela data e, no mesmo dia, pela hora em que foi registrado. */
+function maisRecentePrimeiro(a: { data: string; criado_em: string }, b: { data: string; criado_em: string }) {
+  return b.data.localeCompare(a.data) || (b.criado_em ?? '').localeCompare(a.criado_em ?? '')
+}
+
 function invalidar(qc: ReturnType<typeof useQueryClient>) {
   qc.invalidateQueries({ queryKey: ['estoque'] })
 }
@@ -86,7 +91,7 @@ export function useMovimentos() {
   return useQuery({
     queryKey: CHAVES.movimentos,
     queryFn: async () =>
-      (await db.listar<Movimento>('estoque_movimentos', undefined, { coluna: 'data', crescente: false })).map(normalizarMovimento),
+      (await db.listar<Movimento>('estoque_movimentos')).map(normalizarMovimento).sort(maisRecentePrimeiro),
   })
 }
 
@@ -104,6 +109,39 @@ export function useSalvarMovimentos() {
     mutationFn: (lista: DadosMovimento[]) =>
       db.salvarVarios<Movimento>('estoque_movimentos', carimbar(lista) as Movimento[]),
     onSuccess: () => invalidar(qc),
+  })
+}
+
+/** Uma contagem: quanto foi contado (unidade base), com o id do movimento gerado uma vez na tela. */
+export type DadosContagem = Omit<DadosMovimento, 'quantidade' | 'origem'> & { contado: number }
+
+/**
+ * Salva contagens. A diferença é calculada aqui, com os movimentos buscados agora da nuvem, e não
+ * com o saldo da tela: ele pode estar atrasado (ex.: o outro celular acabou de finalizar uma compra)
+ * e o ajuste sairia errado. Movimentos com o mesmo id (tentativa anterior) não entram no saldo.
+ * Devolve o ajuste lançado em cada item (0 = conferia).
+ */
+export function useSalvarContagem() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (contagens: DadosContagem[]) => {
+      const ids = new Set(contagens.map((c) => c.id))
+      const atuais = await db.listar<Movimento>('estoque_movimentos')
+      const saldos = calcularSaldos(atuais.map(normalizarMovimento).filter((m) => !ids.has(m.id)))
+      const ajustes: Record<string, number> = {}
+      const linhas: DadosMovimento[] = []
+      for (const { contado, ...c } of contagens) {
+        const saldo = (c.item_tipo === 'insumo' ? saldos.insumos[c.insumo_id ?? ''] : saldos.receitas[c.receita_id ?? '']) ?? 0
+        const quantidade = ajusteContagem(saldo, contado)
+        ajustes[c.id] = quantidade
+        if (quantidade !== 0) linhas.push({ ...c, quantidade, origem: 'contagem' })
+        // Conferia, mas uma tentativa anterior já tinha gravado um ajuste com este id: tira.
+        else if (atuais.some((m) => m.id === c.id)) await db.remover('estoque_movimentos', c.id)
+      }
+      if (linhas.length > 0) await db.salvarVarios<Movimento>('estoque_movimentos', carimbar(linhas) as Movimento[])
+      return ajustes
+    },
+    onSettled: () => invalidar(qc),
   })
 }
 
@@ -129,7 +167,7 @@ export function useRestaurarMovimento() {
 export function useProducoes() {
   return useQuery({
     queryKey: CHAVES.producoes,
-    queryFn: async () => (await db.listar<Producao>('producoes', undefined, { coluna: 'data', crescente: false })).map(normalizarProducao),
+    queryFn: async () => (await db.listar<Producao>('producoes')).map(normalizarProducao).sort(maisRecentePrimeiro),
   })
 }
 
@@ -142,7 +180,10 @@ export function useRegistrarProducao() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async ({ producao, movimentos }: { producao: DadosProducao; movimentos: DadosMovimento[] }) => {
+      if (!(milesimos(producao.lotes) > 0) || !(milesimos(producao.rendimento) > 0))
+        throw new Error('A quantidade de receitas e o rendimento precisam ser maiores que zero.')
       const agora = new Date().toISOString()
+      const jaExistia = !!(await db.buscar<Producao>('producoes', producao.id))
       await db.salvarVarios<Producao>('producoes', [
         {
           ...producao,
@@ -154,11 +195,18 @@ export function useRegistrarProducao() {
           atualizado_em: agora,
         },
       ])
-      const ids = new Set(movimentos.map((m) => m.id))
-      for (const m of await db.listar<Movimento>('estoque_movimentos', { producao_id: producao.id }))
-        if (!ids.has(m.id)) await db.remover('estoque_movimentos', m.id)
-      const linhas = carimbar(movimentos.map((m) => ({ ...m, producao_id: producao.id, data: producao.data })))
-      if (linhas.length > 0) await db.salvarVarios<Movimento>('estoque_movimentos', linhas as Movimento[])
+      try {
+        const linhas = carimbar(movimentos.map((m) => ({ ...m, producao_id: producao.id, data: producao.data })))
+        // Tira o que uma tentativa anterior gravou e não vale mais (inclusive linhas que agora zeraram).
+        const ids = new Set(linhas.map((m) => m.id))
+        for (const m of await db.listar<Movimento>('estoque_movimentos', { producao_id: producao.id }))
+          if (!ids.has(m.id)) await db.remover('estoque_movimentos', m.id)
+        if (linhas.length > 0) await db.salvarVarios<Movimento>('estoque_movimentos', linhas as Movimento[])
+      } catch (e) {
+        // Sem os movimentos a produção ficaria no histórico sem mexer no estoque: desfaz.
+        if (!jaExistia) await db.remover('producoes', producao.id).catch(() => {})
+        throw e
+      }
     },
     onSettled: () => invalidar(qc),
   })
@@ -187,7 +235,12 @@ export function useRestaurarProducao() {
   return useMutation({
     mutationFn: async ({ producao, movimentos }: { producao: Producao; movimentos: Movimento[] }) => {
       await db.salvarVarios<Producao>('producoes', [producao])
-      if (movimentos.length > 0) await db.salvarVarios<Movimento>('estoque_movimentos', movimentos)
+      try {
+        if (movimentos.length > 0) await db.salvarVarios<Movimento>('estoque_movimentos', movimentos)
+      } catch (e) {
+        await db.remover('producoes', producao.id).catch(() => {})
+        throw e
+      }
     },
     onSettled: () => invalidar(qc),
   })

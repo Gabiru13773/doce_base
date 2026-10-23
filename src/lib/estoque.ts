@@ -17,7 +17,8 @@ export interface MovimentoCalc {
 }
 
 /** Mesmas casas do banco (numeric(14,3)). */
-export const milesimos = (n: number) => Math.round((n + Math.sign(n) * Number.EPSILON * Math.max(1, Math.abs(n))) * 1000) / 1000
+// `|| 0` troca -0 por 0 (senão a tela mostraria "-0 g").
+export const milesimos = (n: number) => Math.round((n + Math.sign(n) * Number.EPSILON * Math.max(1, Math.abs(n))) * 1000) / 1000 || 0
 
 export interface Saldos {
   insumos: Record<string, number>
@@ -37,21 +38,28 @@ export function calcularSaldos(movimentos: MovimentoCalc[]): Saldos {
   return { insumos, receitas }
 }
 
-export type SituacaoEstoque = 'negativo' | 'zerado' | 'acabando' | 'ok' | 'sem_minimo'
+export type SituacaoEstoque = 'sem_contagem' | 'negativo' | 'zerado' | 'acabando' | 'ok' | 'sem_minimo'
 
 /**
+ * sem_contagem: o item nunca teve movimento (saldo undefined: ainda não foi contado nem comprado
+ * pelo app — não dá alerta, senão tudo apareceria "acabando" antes de começar a usar o estoque);
  * negativo: saiu mais do que entrou (falta registrar uma compra ou contar de novo);
  * zerado; acabando: abaixo do mínimo; ok; sem_minimo: tem saldo e não tem mínimo definido.
  */
-export function situacaoEstoque(saldo: number, minimo: number | null | undefined): SituacaoEstoque {
+export function situacaoEstoque(saldo: number | undefined, minimo: number | null | undefined): SituacaoEstoque {
+  if (saldo === undefined) return 'sem_contagem'
   if (saldo < 0) return 'negativo'
   if (saldo === 0) return 'zerado'
   if (minimo != null && minimo > 0) return saldo < minimo ? 'acabando' : 'ok'
   return 'sem_minimo'
 }
 
-/** Precisa de atenção (entra no alerta "acabando"). Zerado só conta se tiver mínimo definido. */
-export function precisaComprar(saldo: number, minimo: number | null | undefined): boolean {
+/**
+ * Precisa de atenção (entra no alerta "acabando"). Zerado só conta se tiver mínimo definido.
+ * Item nunca contado (saldo undefined) não entra.
+ */
+export function precisaComprar(saldo: number | undefined, minimo: number | null | undefined): boolean {
+  if (saldo === undefined) return false
   if (minimo == null || !(minimo > 0)) return saldo < 0
   return saldo < minimo
 }
@@ -61,11 +69,11 @@ export function precisaComprar(saldo: number, minimo: number | null | undefined)
  * Ex.: mínimo 2000 g, tem 500 g, embalagem 1 kg → 2 pacotes.
  */
 export function embalagensParaRepor(
-  saldo: number,
+  saldo: number | undefined,
   minimo: number | null | undefined,
   embalagem: { qtd: number; unidade: UnidadeCompra },
 ): number {
-  if (!precisaComprar(saldo, minimo)) return 0
+  if (saldo === undefined || !precisaComprar(saldo, minimo)) return 0
   const porEmbalagem = paraBase(embalagem.qtd, embalagem.unidade)
   if (!(porEmbalagem > 0)) return 1
   const falta = (minimo ?? 0) - saldo
@@ -74,7 +82,7 @@ export function embalagensParaRepor(
 
 /** Movimento de contagem: a diferença entre o que foi contado e o saldo atual (0 = nada a lançar). */
 export function ajusteContagem(saldoAtual: number, contado: number): number {
-  if (!(contado >= 0)) return 0
+  if (!Number.isFinite(contado) || contado < 0) return 0
   return milesimos(contado - saldoAtual)
 }
 
@@ -174,7 +182,8 @@ export function subReceitasDaProducao(
 /** Linhas de estoque de uma produção (sem id/data: quem grava completa). */
 export function movimentosDaProducao(receitaId: string, rendimento: number, plano: PlanoProducao): (MovimentoCalc & { origem: 'producao' })[] {
   const linhas: (MovimentoCalc & { origem: 'producao' })[] = []
-  if (rendimento > 0) linhas.push({ item_tipo: 'receita', receita_id: receitaId, insumo_id: null, quantidade: milesimos(rendimento), origem: 'producao' })
+  // Só linhas que não arredondam para 0 (o banco recusa quantidade 0).
+  if (milesimos(rendimento) > 0) linhas.push({ item_tipo: 'receita', receita_id: receitaId, insumo_id: null, quantidade: milesimos(rendimento), origem: 'producao' })
   for (const [id, q] of Object.entries(plano.receitas))
     if (q > 0) linhas.push({ item_tipo: 'receita', receita_id: id, insumo_id: null, quantidade: -q, origem: 'producao' })
   for (const [id, q] of Object.entries(plano.insumos))

@@ -31,6 +31,11 @@ const MontarCompraPage = lazy(() => import('./modules/compras/MontarCompraPage')
 const FazerCompraPage = lazy(() => import('./modules/compras/FazerCompraPage'))
 const FinalizarCompraPage = lazy(() => import('./modules/compras/FinalizarCompraPage'))
 const PrecosPage = lazy(() => import('./modules/compras/PrecosPage'))
+const EstoquePage = lazy(() => import('./modules/estoque/EstoquePage'))
+const ItemEstoquePage = lazy(() => import('./modules/estoque/ItemEstoquePage'))
+const ContagemPage = lazy(() => import('./modules/estoque/ContagemPage'))
+const ProducaoPage = lazy(() => import('./modules/producao/ProducaoPage'))
+const RegistrarProducaoPage = lazy(() => import('./modules/producao/RegistrarProducaoPage'))
 
 export default function App() {
   const { carregando, usuario } = useAuth()
@@ -54,17 +59,8 @@ export default function App() {
         <Route path="insumos/:id" element={<InsumoFormPage />} />
         <Route path="config/precos" element={<ConfigPage />} />
         <Route path="mais" element={<MaisPage />} />
-        <Route
-          path="producao"
-          element={
-            <EmBrevePage
-              titulo="Produzir"
-              itens={[
-                'Registrar o que você produziu: o estoque recebe o rendimento (ex.: 1 bolo = 10 fatias) e os insumos saem sozinhos',
-              ]}
-            />
-          }
-        />
+        <Route path="producao" element={<ProducaoPage />} />
+        <Route path="producao/nova" element={<RegistrarProducaoPage />} />
         <Route path="receitas" element={<ReceitasPage />} />
         <Route path="receitas/nova" element={<ReceitaFormPage />} />
         <Route path="receitas/:id" element={<ReceitaFormPage />} />
@@ -79,22 +75,10 @@ export default function App() {
         <Route path="compras/:id" element={<FazerCompraPage />} />
         <Route path="compras/:id/lista" element={<MontarCompraPage />} />
         <Route path="compras/:id/finalizar" element={<FinalizarCompraPage />} />
-        <Route
-          path="estoque"
-          element={
-            <EmBrevePage
-              titulo="Estoque"
-              itens={['Ver o que tem de insumos e de preparados prontos, com alerta do que está acabando']}
-            >
-              <Link
-                to="/insumos"
-                className="flex min-h-12 items-center justify-center rounded-2xl bg-marca px-5 font-semibold text-white shadow-sm active:bg-marca-escura"
-              >
-                Ver meus insumos
-              </Link>
-            </EmBrevePage>
-          }
-        />
+        <Route path="estoque" element={<EstoquePage />} />
+        <Route path="estoque/contagem" element={<ContagemPage />} />
+        <Route path="estoque/insumo/:id" element={<ItemEstoquePage />} />
+        <Route path="estoque/preparado/:id" element={<ItemEstoquePage />} />
         <Route path="financeiro" element={<ResumoPage />} />
         <Route path="financeiro/lancar" element={<LancamentoFormPage />} />
         <Route path="financeiro/lancamentos/:id" element={<LancamentoFormPage />} />

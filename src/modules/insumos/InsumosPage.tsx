@@ -3,7 +3,11 @@ import { useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { BarraAcao, Botao, Busca, Carregando, Erro, Pilulas, TituloPagina, Vazio } from '../../components/ui'
 import { custoAmigavel } from '../../lib/custos'
+import { precisaComprar } from '../../lib/estoque'
 import { moeda, numero } from '../../lib/format'
+import { textoQuantidade } from '../../lib/receitas'
+import { unidadeBase } from '../../lib/unidades'
+import { useSaldos } from '../estoque/api'
 import { CATEGORIAS, useInsumos, type CategoriaInsumo, type Insumo } from './api'
 
 type Filtro = 'todos' | CategoriaInsumo
@@ -40,6 +44,8 @@ function descreverEmbalagem(qtd: number, unidade: Insumo['unidade_compra']): str
 export default function InsumosPage() {
   const navegar = useNavigate()
   const { data: insumos, isLoading, isError, error, refetch } = useInsumos()
+  // Saldo é um extra: a lista aparece mesmo se o estoque ainda não carregou.
+  const { data: saldos } = useSaldos()
   const [busca, setBusca] = useState('')
   const [filtro, setFiltro] = useState<Filtro>('todos')
 
@@ -98,7 +104,7 @@ export default function InsumosPage() {
             <ul className="flex flex-col gap-2">
               {filtrados.map((i) => (
                 <li key={i.id}>
-                  <CartaoInsumo insumo={i} />
+                  <CartaoInsumo insumo={i} saldo={saldos ? (saldos.insumos[i.id] ?? (i.estoque_minimo ? 0 : undefined)) : undefined} />
                 </li>
               ))}
             </ul>
@@ -115,7 +121,10 @@ export default function InsumosPage() {
   )
 }
 
-function CartaoInsumo({ insumo: i }: { insumo: Insumo }) {
+/** saldo: quanto tem em estoque (unidade base); undefined = sem movimentos (não mostra). */
+function CartaoInsumo({ insumo: i, saldo }: { insumo: Insumo; saldo?: number }) {
+  const base = unidadeBase(i.unidade_compra)
+  const acabando = saldo !== undefined && precisaComprar(saldo, i.estoque_minimo)
   const categoria = CATEGORIAS.find((c) => c.valor === i.categoria)
   const custo = custoAmigavel({ qtdCompra: i.qtd_compra, unidadeCompra: i.unidade_compra, precoCompra: i.preco_compra })
 
@@ -132,6 +141,13 @@ function CartaoInsumo({ insumo: i }: { insumo: Insumo }) {
         <p className="truncate text-sm text-suave">
           {descreverEmbalagem(i.qtd_compra, i.unidade_compra)} por {moeda(i.preco_compra)}
         </p>
+        {saldo !== undefined && (
+          <p className={`truncate text-sm ${acabando ? 'font-semibold text-perigo' : 'text-suave'}`}>
+            Em estoque: {saldo < 0 ? '−' : ''}
+            {textoQuantidade(Math.abs(saldo), base)}
+            {acabando && ' · acabando'}
+          </p>
+        )}
       </div>
       <p className="shrink-0 text-right font-bold text-marca">
         {moeda(custo.valor)}

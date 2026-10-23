@@ -17,6 +17,8 @@ import {
   Vazio,
 } from '../../components/ui'
 import { faixaPrecos } from '../../lib/compras'
+import { situacaoEstoque } from '../../lib/estoque'
+import { textoQuantidade } from '../../lib/receitas'
 import { custoAmigavel, custoPorUnidadeBase } from '../../lib/custos'
 import { lerNumero, moeda, numero, paraCampo } from '../../lib/format'
 import { ROTULO_BASE, UNIDADES_COMPRA, unidadeBase, type UnidadeCompra } from '../../lib/unidades'
@@ -32,6 +34,7 @@ import {
   type PrecoInsumo,
 } from './api'
 import { LeitorCodigo, leitorDisponivel } from '../compras/componentes/LeitorCodigo'
+import { useSaldos } from '../estoque/api'
 
 // Valor por unidade base pede mais casas (R$ 0,0165 por g).
 const moedaFina = new Intl.NumberFormat('pt-BR', {
@@ -212,6 +215,8 @@ function Formulario({ original }: { original?: Insumo }) {
       <TituloPagina titulo={original ? original.nome : 'Novo insumo'} />
 
       <div className="flex flex-col gap-6">
+        {original && <EmEstoque insumo={original} />}
+
         <Entrada
           rotulo="Nome"
           placeholder="Ex.: Leite condensado"
@@ -357,6 +362,33 @@ function Formulario({ original }: { original?: Insumo }) {
         </Botao>
       </BarraAcao>
     </form>
+  )
+}
+
+/** Quanto tem agora (só leitura; o estoque muda pelas compras, produções e contagens). */
+function EmEstoque({ insumo }: { insumo: Insumo }) {
+  const { data: saldos } = useSaldos()
+  if (!saldos) return null
+  const saldo = saldos.insumos[insumo.id] ?? 0
+  const base = unidadeBase(insumo.unidade_compra)
+  const texto = (q: number) => `${q < 0 ? '−' : ''}${textoQuantidade(Math.abs(q), base)}`
+  const situacao = situacaoEstoque(saldo, insumo.estoque_minimo)
+  const atencao = situacao === 'acabando' || situacao === 'negativo'
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 rounded-2xl border border-borda bg-superficie px-4 py-2">
+      <p>
+        Em estoque: <strong className={atencao ? 'text-perigo' : undefined}>{texto(saldo)}</strong>
+        {insumo.estoque_minimo != null && insumo.estoque_minimo > 0 && (
+          <span className="text-sm text-suave"> · mínimo {texto(insumo.estoque_minimo)}</span>
+        )}
+      </p>
+      <Link
+        to={`/estoque/insumo/${insumo.id}`}
+        className="-mr-2 inline-flex min-h-12 items-center rounded-xl px-2 font-semibold text-marca active:bg-marca-clara"
+      >
+        Ver estoque
+      </Link>
+    </div>
   )
 }
 
