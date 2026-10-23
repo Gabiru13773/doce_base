@@ -74,10 +74,10 @@ function mensagemDe(e: unknown): string {
 export default function ReceitaFormPage() {
   const { id } = useParams()
   const editando = !!id && id !== 'nova'
-  const { contexto, config, receitasAtivas, insumosAtivos, carregando, erro, tentarDeNovo } = useContextoCalculo()
+  const { contexto, config, receitasAtivas, insumosAtivos, carregando, atualizando, erro, tentarDeNovo } = useContextoCalculo()
 
   if (erro) return <Erro mensagem={mensagemDe(erro)} tentarDeNovo={tentarDeNovo} />
-  if (carregando || !contexto || !config) return <Carregando />
+  if (carregando || !contexto || !config || (editando && atualizando)) return <Carregando />
 
   const dadosComuns = { contexto, config, receitasAtivas, insumosAtivos }
 

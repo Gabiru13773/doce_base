@@ -77,7 +77,9 @@ export default function ProdutoFormPage() {
         }}
       />
     )
-  if (carregando || produtos.isPending || !contexto || !config) return <Carregando />
+  // Na edição, espera a versão atual do produto (ver `atualizando` em useContextoCalculo).
+  const produtoAtualizando = !produtos.isFetchedAfterMount && produtos.fetchStatus === 'fetching'
+  if (carregando || produtos.isPending || !contexto || !config || (editando && produtoAtualizando)) return <Carregando />
 
   const dadosComuns = { contexto, config, receitasAtivas, insumosAtivos }
 

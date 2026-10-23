@@ -117,6 +117,12 @@ export function useContextoCalculo() {
     /** Insumos ativos (para listas e seletores). */
     insumosAtivos: ativos.data ?? [],
     carregando: receitas.isPending || insumos.isPending || config.isPending || ativos.isPending,
+    /**
+     * Ainda buscando a versão atual das receitas (o cache salvo no aparelho pode estar atrasado).
+     * Formulários de edição esperam: começariam com os valores antigos e, ao salvar, gravariam
+     * esses valores de volta. Sem internet (busca pausada), não espera.
+     */
+    atualizando: !receitas.isFetchedAfterMount && receitas.fetchStatus === 'fetching',
     erro: receitas.error ?? insumos.error ?? config.error ?? ativos.error ?? null,
     tentarDeNovo: () => {
       receitas.refetch()

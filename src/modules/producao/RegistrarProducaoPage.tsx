@@ -387,7 +387,7 @@ function Formulario({
                           {s.tipo === 'receita' && <span className="ml-1 text-sm font-normal text-suave">(pronto)</span>}
                         </p>
                         <p className="text-sm text-suave">
-                          tem {s.texto(s.saldo)} → vai ficar {s.texto(depois)}
+                          tem {s.saldo < 0 ? `−${s.texto(-s.saldo)}` : s.texto(s.saldo)} → vai ficar {depois < 0 ? `−${s.texto(-depois)}` : s.texto(depois)}
                         </p>
                         {depois < 0 && (
                           <p className="mt-0.5 flex items-center gap-1 text-sm font-semibold text-perigo">

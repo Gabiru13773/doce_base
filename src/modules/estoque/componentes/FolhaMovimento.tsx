@@ -156,7 +156,7 @@ export function FolhaMovimento({
 
         {unidades.length > 1 && (
           <div className="flex flex-col gap-2">
-            <p className="font-semibold">Contado em</p>
+            <p className="font-semibold">{modo === 'contar' ? 'Contado em' : 'Unidade'}</p>
             <Pilulas
               rotulo="Unidade"
               valor={unidade}

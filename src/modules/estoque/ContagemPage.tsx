@@ -232,7 +232,7 @@ function LinhaContagem({ item, valor, aoMudar }: { item: ItemEstoque; valor: str
             placeholder="—"
             value={valor}
             onChange={(e) => aoMudar(e.target.value)}
-            className={`${classeEntrada} w-32 pr-14 text-right`}
+            className={`${classeEntrada.replace('w-full', '')} w-32 pr-14 text-right`}
           />
           <span className="pointer-events-none absolute right-3 max-w-12 truncate text-sm text-suave">{unidade}</span>
         </span>
