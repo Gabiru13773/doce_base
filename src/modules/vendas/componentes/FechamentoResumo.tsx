@@ -49,8 +49,11 @@ export function ResumoCartoes({ resumo }: { resumo: ResumoDia }) {
   const canais = CANAIS.filter((c) => resumo.porCanal[c.valor] > 0)
   return (
     <div className="flex flex-col gap-3">
-      <div className="grid grid-cols-3 gap-2">
-        <Numero rotulo="Vendido" valor={moeda(resumo.total)} destaque />
+      {/* "Vendido" ocupa a linha toda: em 3 colunas o valor quebrava no celular */}
+      <div className="grid grid-cols-2 gap-2">
+        <div className="col-span-2">
+          <Numero rotulo="Vendido" valor={moeda(resumo.total)} destaque />
+        </div>
         <Numero rotulo={resumo.vendas === 1 ? 'Venda' : 'Vendas'} valor={String(resumo.vendas)} />
         <Numero rotulo="Ticket médio" valor={moeda(resumo.ticketMedio)} />
       </div>

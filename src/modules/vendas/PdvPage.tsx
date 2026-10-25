@@ -39,7 +39,7 @@ import { FolhaDesconto, FolhaPreco, FolhaTrocarCanal, FolhaVariacao } from './co
 type FolhaAberta =
   | { tipo: 'variacao'; opcao: OpcaoProduto }
   | { tipo: 'preco'; opcao: OpcaoProduto; variacao: OpcaoVariacao; semPreco: boolean; inicial: number | null }
-  | { tipo: 'desconto' }
+  | { tipo: 'desconto'; voltarAoCarrinho?: boolean }
   | { tipo: 'canal'; canal: Canal }
   | { tipo: 'carrinho' }
   | { tipo: 'cobrar'; vendaId: string }
@@ -440,9 +440,9 @@ export default function PdvPage() {
           inicial={carrinho.desconto}
           aoConfirmar={(d) => {
             setCarrinho((c) => ({ ...c, desconto: d }))
-            setFolha(null)
+            setFolha(folha.voltarAoCarrinho ? { tipo: 'carrinho' } : null)
           }}
-          aoFechar={() => setFolha(null)}
+          aoFechar={() => setFolha(folha.voltarAoCarrinho ? { tipo: 'carrinho' } : null)}
         />
       )}
       {folha?.tipo === 'canal' && (
@@ -462,7 +462,11 @@ export default function PdvPage() {
           aoFechar={() => setFolha(null)}
           rodape={
             <div className="flex w-full flex-col gap-3">
-              <TotaisCarrinho totais={totais} desconto={carrinho.desconto} aoDesconto={() => setFolha({ tipo: 'desconto' })} />
+              <TotaisCarrinho
+                totais={totais}
+                desconto={carrinho.desconto}
+                aoDesconto={() => setFolha({ tipo: 'desconto', voltarAoCarrinho: true })}
+              />
               <div className="flex gap-3">
                 <Botao variante="perigo" className="flex-1" onClick={limpar} disabled={vazio}>
                   Limpar

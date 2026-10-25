@@ -290,7 +290,14 @@ const fila = criarFila()
 /** Liga a fila ao cache da tela: quando uma venda sobe, a lista do dia é buscada de novo. */
 function useLigarFila() {
   const qc = useQueryClient()
-  useEffect(() => fila.definirAoEnviar((data) => qc.invalidateQueries({ queryKey: CHAVES.doDia(data) })), [qc])
+  useEffect(
+    () =>
+      fila.definirAoEnviar((data) =>
+        // a baixa no estoque também acabou de subir ("restam N" na tela de vender)
+        Promise.all([qc.invalidateQueries({ queryKey: CHAVES.doDia(data) }), qc.invalidateQueries({ queryKey: ['estoque'] })]),
+      ),
+    [qc],
+  )
 }
 
 /** Vendas deste aparelho que ainda não subiram, o último erro e as vendas que o banco recusou. */

@@ -26,7 +26,9 @@ export default function AjustesPdvPage() {
     <div>
       <Voltar padrao="/vendas" />
       <TituloPagina titulo="Ajustes do PDV" subtitulo="Taxas, prazos e contas usados nas vendas e no fechamento do caixa" />
-      {config.isPending || contas.isPending ? (
+      {/* Espera a versão atual da nuvem: com o cache atrasado, o formulário começaria com valores
+          antigos e, ao salvar, gravaria esses valores de volta. Sem internet (busca pausada), não espera. */}
+      {config.isPending || contas.isPending || (!config.isFetchedAfterMount && config.fetchStatus === 'fetching') ? (
         <Carregando />
       ) : config.isError ? (
         <Erro mensagem={mensagemDe(config.error)} tentarDeNovo={() => void config.refetch()} />
