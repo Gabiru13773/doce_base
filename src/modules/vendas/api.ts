@@ -3,7 +3,17 @@ import { useEffect, useMemo, useSyncExternalStore } from 'react'
 import { centavos } from '../../lib/compras'
 import { db } from '../../lib/db'
 import { modoLocal } from '../../lib/supabase'
-import { CONFIG_PDV_PADRAO, type Canal, type ConfigPdv, type ItemVenda, type Pagamento } from '../../lib/vendas'
+import { milesimos } from '../../lib/estoque'
+import {
+  CONFIG_PDV_PADRAO,
+  faltaPagar,
+  pagamentosComTaxa,
+  totaisVenda,
+  type Canal,
+  type ConfigPdv,
+  type ItemVenda,
+  type Pagamento,
+} from '../../lib/vendas'
 import type { DadosMovimento, Movimento } from '../estoque/api'
 import type { DadosLancamento, DadosTitulo, Lancamento, Titulo } from '../financeiro/api'
 
@@ -31,9 +41,11 @@ export interface Venda {
   observacao: string | null
   criado_em: string
   atualizado_em: string
+  /** só na tela: venda deste aparelho que ainda não subiu para a nuvem */
+  pendente?: boolean
 }
 
-export type DadosVenda = Omit<Venda, 'atualizado_em'>
+export type DadosVenda = Omit<Venda, 'atualizado_em' | 'pendente'>
 
 export interface Fechamento {
   id: string
@@ -117,25 +129,34 @@ export function useSalvarConfigPdv() {
 interface VendaPendente {
   venda: DadosVenda
   movimentos: DadosMovimento[]
+  /** a venda já está na nuvem (falta só a baixa no estoque) */
+  vendaSalva?: boolean
 }
 
 const CHAVE_FILA = 'euforia:vendas-fila'
+const CHAVE_PERDIDAS = 'euforia:vendas-perdidas'
 
 // Erros em que o banco recusou o valor: tentar de novo daria o mesmo erro (ver src/lib/db.ts).
-const ERRO_DEFINITIVO = /fora do permitido|formato inválido|campos obrigatórios|grande demais|comprido demais|não existe mais/i
+const ERRO_DEFINITIVO = /fora do permitido|formato inválido|campos obrigatórios|grande demais|comprido demais|não existe mais|ligado a um registro/i
+
+const reais = (v: number) => `R$ ${v.toFixed(2).replace('.', ',')}`
 
 function criarFila() {
   // O Map nunca é alterado no lugar: cada mudança cria um novo (é o "retrato" que o React lê).
   let pendentes = new Map<string, VendaPendente>()
+  /** erro passageiro (internet, sessão): some quando um envio dá certo */
   let ultimoErro: string | null = null
+  /** vendas descartadas pelo banco: ficam avisando até alguém dispensar */
+  let perdidas: string[] = []
   let envio: Promise<void> | null = null
   let timer: number | undefined
   const ouvintes = new Set<() => void>()
-  let aoEnviar: ((data: string) => void) | null = null
+  let aoEnviar: ((data: string) => Promise<unknown>) | null = null
 
   try {
     const salvo = JSON.parse(localStorage.getItem(CHAVE_FILA) ?? '[]') as VendaPendente[]
     pendentes = new Map(salvo.map((p) => [p.venda.id, p]))
+    perdidas = JSON.parse(localStorage.getItem(CHAVE_PERDIDAS) ?? '[]') as string[]
   } catch {
     /* fila vazia */
   }
@@ -144,40 +165,62 @@ function criarFila() {
     pendentes = novo
     try {
       localStorage.setItem(CHAVE_FILA, JSON.stringify([...pendentes.values()]))
+      localStorage.setItem(CHAVE_PERDIDAS, JSON.stringify(perdidas))
     } catch {
       /* sem espaço: segue só na memória */
     }
     for (const o of ouvintes) o()
   }
 
-  function tirar(id: string, p: VendaPendente) {
-    if (pendentes.get(id) !== p) return
+  function tirar(id: string) {
+    if (!pendentes.has(id)) return
     const novo = new Map(pendentes)
     novo.delete(id)
     trocar(novo)
   }
 
+  function marcarSalva(id: string) {
+    const p = pendentes.get(id)
+    if (!p || p.vendaSalva) return
+    trocar(new Map(pendentes).set(id, { ...p, vendaSalva: true }))
+  }
+
   async function enviarTudo() {
     for (const [id, p] of [...pendentes]) {
+      const agora = new Date().toISOString()
+      let etapa: 'venda' | 'estoque' = 'venda'
       try {
-        const agora = new Date().toISOString()
-        await db.salvarVarios<Venda>('vendas', [{ ...p.venda, atualizado_em: agora } as Venda])
-        if (p.movimentos.length > 0)
+        // Só cria a venda: se ela já existe (tentativa anterior), não regrava por cima — o outro
+        // celular pode ter cancelado ou fechado o caixa nesse meio-tempo.
+        if (!p.vendaSalva && !(await db.buscar<Venda>('vendas', id))) {
+          await db.salvarVarios<Venda>('vendas', [{ ...p.venda, atualizado_em: agora } as Venda])
+        }
+        marcarSalva(id)
+        etapa = 'estoque'
+        // Cancelada (Desfazer) enquanto subia: não dá baixa no estoque.
+        if (pendentes.has(id) && p.movimentos.length > 0) {
           await db.salvarVarios<Movimento>(
             'estoque_movimentos',
             p.movimentos.map((m) => ({ ...m, criado_em: p.venda.criado_em, atualizado_em: agora })) as Movimento[],
           )
+        }
         ultimoErro = null
-        tirar(id, p)
-        aoEnviar?.(p.venda.data)
+        // Busca a lista de novo antes de tirar da fila (senão a venda some da tela por um instante).
+        await aoEnviar?.(p.venda.data)?.catch(() => {})
+        tirar(id)
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e)
         if (!ERRO_DEFINITIVO.test(msg)) {
           ultimoErro = msg
           break
         }
-        ultimoErro = `Uma venda não foi salva (${p.venda.total.toFixed(2).replace('.', ',')}): ${msg}`
-        tirar(id, p)
+        perdidas = [
+          ...perdidas,
+          etapa === 'venda'
+            ? `A venda de ${reais(p.venda.total)} (${p.venda.data.split('-').reverse().join('/')}) não foi salva: ${msg}`
+            : `A venda de ${reais(p.venda.total)} foi salva, mas a baixa no estoque não: ${msg}`,
+        ]
+        tirar(id)
       }
     }
   }
@@ -214,24 +257,29 @@ function criarFila() {
     },
     retrato: () => pendentes,
     erro: () => ultimoErro,
+    perdidas: () => perdidas,
+    dispensarPerdidas() {
+      perdidas = []
+      trocar(new Map(pendentes))
+    },
     adicionar(p: VendaPendente) {
       ultimoErro = null
-      const novo = new Map(pendentes)
-      novo.set(p.venda.id, p)
-      trocar(novo)
+      trocar(new Map(pendentes).set(p.venda.id, p))
       void enviar()
     },
-    /** Tira da fila uma venda que ainda não subiu (Desfazer logo depois de vender). */
-    descartar(id: string): boolean {
-      if (!pendentes.has(id)) return false
-      const novo = new Map(pendentes)
-      novo.delete(id)
-      trocar(novo)
-      return true
+    /**
+     * Tira da fila (Desfazer logo depois de vender). Devolve se a venda pode já estar na nuvem
+     * (aí quem chama também cancela lá).
+     */
+    descartar(id: string): { estava: boolean; talvezNaNuvem: boolean } {
+      const p = pendentes.get(id)
+      if (!p) return { estava: false, talvezNaNuvem: true }
+      tirar(id)
+      return { estava: true, talvezNaNuvem: !!p.vendaSalva || envio !== null }
     },
     enviarAgora: () => enviar(),
-    aguardando: () => pendentes.size,
-    definirAoEnviar(f: (data: string) => void) {
+    aguardando: (data?: string) => [...pendentes.values()].filter((p) => !data || p.venda.data === data).length,
+    definirAoEnviar(f: (data: string) => Promise<unknown>) {
       aoEnviar = f
     },
   }
@@ -239,32 +287,62 @@ function criarFila() {
 
 const fila = criarFila()
 
-/** Quantas vendas deste aparelho ainda não subiram, e o último erro. */
+/** Liga a fila ao cache da tela: quando uma venda sobe, a lista do dia é buscada de novo. */
+function useLigarFila() {
+  const qc = useQueryClient()
+  useEffect(() => fila.definirAoEnviar((data) => qc.invalidateQueries({ queryKey: CHAVES.doDia(data) })), [qc])
+}
+
+/** Vendas deste aparelho que ainda não subiram, o último erro e as vendas que o banco recusou. */
 export function useFilaVendas() {
+  useLigarFila()
   const pendentes = useSyncExternalStore(fila.assinar, fila.retrato)
-  return { aguardando: pendentes.size, erro: fila.erro(), enviarAgora: fila.enviarAgora }
+  return {
+    aguardando: pendentes.size,
+    erro: fila.erro(),
+    perdidas: fila.perdidas(),
+    dispensarPerdidas: fila.dispensarPerdidas,
+    enviarAgora: fila.enviarAgora,
+  }
 }
 
 /**
  * Registra uma venda: aparece na hora e sobe para a nuvem assim que der.
  * `movimentos`: a baixa no estoque (com venda_id), ids gerados por quem chama.
+ * Confere a venda antes (o banco recusaria e ela se perderia depois de a cliente ir embora):
+ * lança um erro com a mensagem para mostrar na tela.
  */
 export function useRegistrarVenda() {
   const qc = useQueryClient()
-  useEffect(() => fila.definirAoEnviar((data) => void qc.invalidateQueries({ queryKey: CHAVES.doDia(data) })), [qc])
+  useLigarFila()
+  const config = useConfigPdv()
   return (venda: DadosVenda, movimentos: DadosMovimento[]) => {
+    const itens = venda.itens.filter((i) => i.qtd > 0)
+    if (itens.length === 0) throw new Error('A venda não tem itens.')
+    if (itens.some((i) => !(i.preco >= 0))) throw new Error('Algum item está sem preço.')
+    const t = totaisVenda(itens, venda.desconto)
+    if (!(venda.desconto >= 0) || centavos(venda.desconto) > t.subtotal) throw new Error('O desconto não pode ser maior que a venda.')
+    const pagamentos = pagamentosComTaxa(venda.pagamentos, config.data ?? CONFIG_PDV_PADRAO)
+    if (pagamentos.length === 0) throw new Error('Escolha a forma de pagamento.')
+    const falta = faltaPagar(t.total, pagamentos)
+    if (falta !== 0)
+      throw new Error(falta > 0 ? `Ainda falta receber ${reais(falta)}.` : `Os pagamentos passam do total em ${reais(-falta)}.`)
     fila.adicionar({
       venda: {
         ...venda,
-        subtotal: centavos(venda.subtotal),
-        desconto: centavos(venda.desconto),
-        total: centavos(venda.subtotal - venda.desconto),
-        troco: centavos(venda.troco),
-        taxas: centavos(venda.taxas),
+        itens,
+        pagamentos,
+        subtotal: t.subtotal,
+        desconto: t.desconto,
+        total: t.total,
+        troco: Math.max(0, centavos(venda.troco)),
+        taxas: centavos(pagamentos.reduce((s, p) => s + p.taxa, 0)),
         cliente: venda.cliente?.trim() || null,
         observacao: venda.observacao?.trim() || null,
       },
-      movimentos: movimentos.filter((m) => m.quantidade !== 0).map((m) => ({ ...m, venda_id: venda.id }) as DadosMovimento),
+      movimentos: movimentos
+        .map((m) => ({ ...m, quantidade: milesimos(m.quantidade), venda_id: venda.id }) as DadosMovimento)
+        .filter((m) => m.quantidade !== 0),
     })
     void qc.invalidateQueries({ queryKey: ['estoque'] })
   }
@@ -274,18 +352,22 @@ export function useRegistrarVenda() {
 
 /** Vendas de um dia (AAAA-MM-DD), com as deste aparelho que ainda não subiram; as mais recentes primeiro. */
 export function useVendasDoDia(data: string) {
+  useLigarFila()
   const consulta = useQuery({
     queryKey: CHAVES.doDia(data),
     queryFn: async () => (await db.listar<Venda>('vendas', { data })).map(normalizarVenda),
   })
   const pendentes = useSyncExternalStore(fila.assinar, fila.retrato)
   const vendas = useMemo(() => {
-    if (!consulta.data) return undefined
-    const ids = new Set(consulta.data.map((v) => v.id))
-    const locais = [...pendentes.values()]
-      .filter((p) => p.venda.data === data && !ids.has(p.venda.id))
-      .map((p) => normalizarVenda({ ...p.venda, atualizado_em: p.venda.criado_em } as Venda))
-    return [...consulta.data, ...locais].sort((a, b) => b.criado_em.localeCompare(a.criado_em))
+    const locais = [...pendentes.values()].filter((p) => p.venda.data === data)
+    // Sem a lista da nuvem (sem internet na primeira vez), mostra ao menos as deste aparelho.
+    if (!consulta.data && locais.length === 0) return undefined
+    const daNuvem = consulta.data ?? []
+    const ids = new Set(daNuvem.map((v) => v.id))
+    const soLocais = locais
+      .filter((p) => !ids.has(p.venda.id))
+      .map((p) => ({ ...normalizarVenda({ ...p.venda, atualizado_em: p.venda.criado_em } as Venda), pendente: true }))
+    return [...daNuvem, ...soLocais].sort((a, b) => b.criado_em.localeCompare(a.criado_em))
   }, [consulta.data, pendentes, data])
   return { ...consulta, data: vendas }
 }
@@ -296,15 +378,23 @@ export function useCancelarVenda() {
   return useMutation({
     mutationFn: async ({ venda, motivo }: { venda: Venda; motivo: string }) => {
       if (venda.fechamento_id) throw new Error('Este dia já foi fechado. Desfaça o fechamento do caixa para cancelar a venda.')
-      // Ainda na fila deste aparelho: some antes de subir.
-      if (fila.descartar(venda.id)) return
-      const salva = await db.atualizar<Venda>('vendas', venda.id, {
+      // Ainda na fila deste aparelho: some antes de subir (se já pode ter subido, cancela lá também).
+      const { estava, talvezNaNuvem } = fila.descartar(venda.id)
+      if (estava && !talvezNaNuvem) return
+      const atual = await db.buscar<Venda>('vendas', venda.id)
+      if (!atual) {
+        if (estava) return
+        throw new Error('Venda não encontrada.')
+      }
+      if (atual.fechamento_id) throw new Error('Este dia já foi fechado. Desfaça o fechamento do caixa para cancelar a venda.')
+      // Primeiro devolve o estoque, depois marca como cancelada: se algo falhar no meio, a venda
+      // continua "concluída" e dá para cancelar de novo.
+      for (const m of await db.listar<Movimento>('estoque_movimentos', { venda_id: venda.id })) await db.remover('estoque_movimentos', m.id)
+      await db.atualizar<Venda>('vendas', venda.id, {
         status: 'cancelada',
-        motivo_cancelamento: motivo.trim(),
+        motivo_cancelamento: motivo.trim() || 'Cancelada',
         atualizado_em: new Date().toISOString(),
       })
-      if (!salva) throw new Error('Venda não encontrada.')
-      for (const m of await db.listar<Movimento>('estoque_movimentos', { venda_id: venda.id })) await db.remover('estoque_movimentos', m.id)
     },
     onSettled: (_r, _e, { venda }) => {
       qc.invalidateQueries({ queryKey: CHAVES.doDia(venda.data) })
@@ -342,27 +432,50 @@ export function useFecharCaixa() {
   return useMutation({
     mutationFn: async (d: DadosFechamentoCaixa) => {
       await fila.enviarAgora()
-      if (fila.aguardando() > 0) throw new Error('Ainda há vendas deste aparelho para enviar. Confira a internet e tente de novo.')
+      if (fila.aguardando(d.fechamento.data) > 0)
+        throw new Error('Ainda há vendas deste dia neste aparelho para enviar. Confira a internet e tente de novo.')
       const agora = new Date().toISOString()
-      const f = d.fechamento
+      // Um fechamento por dia: se uma tentativa anterior (ou o outro celular) já criou o deste dia,
+      // usa o mesmo (o banco recusaria um segundo).
+      const existente = (await db.listar<Fechamento>('caixa_fechamentos', { data: d.fechamento.data }))[0]
+      const id = existente?.id ?? d.fechamento.id
+      // Confere com a nuvem as vendas do dia: chegou venda nova (outro celular) ou alguma foi
+      // cancelada desde que a tela abriu? Aí os totais da tela estão errados.
+      const naNuvem = (await db.listar<Venda>('vendas', { data: d.fechamento.data }))
+        .map(normalizarVenda)
+        .filter((v) => v.status === 'concluida' && (!v.fechamento_id || v.fechamento_id === id))
+      const daTela = new Set(d.vendas.map((v) => v.id))
+      if (naNuvem.length !== daTela.size || naNuvem.some((v) => !daTela.has(v.id)))
+        throw new Error('As vendas do dia mudaram (venda nova ou cancelada em outro aparelho). Confira os totais e feche de novo.')
+      const f = { ...d.fechamento, id }
       await db.salvarVarios<Fechamento>('caixa_fechamentos', [
-        { ...f, fundo_troco: f.fundo_troco == null ? null : centavos(f.fundo_troco), dinheiro_contado: f.dinheiro_contado == null ? null : centavos(f.dinheiro_contado), criado_em: agora, atualizado_em: agora },
+        {
+          ...f,
+          fundo_troco: f.fundo_troco == null ? null : centavos(f.fundo_troco),
+          dinheiro_contado: f.dinheiro_contado == null ? null : centavos(f.dinheiro_contado),
+          criado_em: existente?.criado_em ?? agora,
+          atualizado_em: agora,
+        },
       ])
       const lancIds = new Set(d.lancamentos.map((l) => l.id))
-      for (const l of await db.listar<Lancamento>('fin_lancamentos', { fechamento_id: f.id })) if (!lancIds.has(l.id)) await db.remover('fin_lancamentos', l.id)
+      for (const l of await db.listar<Lancamento>('fin_lancamentos', { fechamento_id: id })) if (!lancIds.has(l.id)) await db.remover('fin_lancamentos', l.id)
       const titIds = new Set(d.titulos.map((t) => t.id))
-      for (const t of await db.listar<Titulo>('fin_titulos', { fechamento_id: f.id })) if (!titIds.has(t.id)) await db.remover('fin_titulos', t.id)
+      for (const t of await db.listar<Titulo>('fin_titulos', { fechamento_id: id })) if (!titIds.has(t.id)) await db.remover('fin_titulos', t.id)
       if (d.titulos.length > 0)
         await db.salvarVarios<Titulo>(
           'fin_titulos',
-          d.titulos.map((t) => ({ ...t, valor: centavos(t.valor), fechamento_id: f.id, criado_em: agora, atualizado_em: agora })) as Titulo[],
+          d.titulos.map((t) => ({ ...t, valor: centavos(t.valor), fechamento_id: id, criado_em: agora, atualizado_em: agora })) as Titulo[],
         )
       if (d.lancamentos.length > 0)
         await db.salvarVarios<Lancamento>(
           'fin_lancamentos',
-          d.lancamentos.map((l) => ({ ...l, valor: centavos(l.valor), fechamento_id: f.id, criado_em: agora, atualizado_em: agora })) as Lancamento[],
+          d.lancamentos.map((l) => ({ ...l, valor: centavos(l.valor), fechamento_id: id, criado_em: agora, atualizado_em: agora })) as Lancamento[],
         )
-      for (const v of d.vendas) await db.atualizar<Venda>('vendas', v.id, { fechamento_id: f.id, atualizado_em: agora })
+      for (const v of naNuvem) {
+        if (v.fechamento_id === id) continue
+        if (!(await db.atualizar<Venda>('vendas', v.id, { fechamento_id: id, atualizado_em: agora })))
+          throw new Error('Uma venda do dia não foi encontrada. Atualize a tela e feche de novo.')
+      }
     },
     onSettled: () => {
       qc.invalidateQueries({ queryKey: CHAVES.vendas })

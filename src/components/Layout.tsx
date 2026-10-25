@@ -10,7 +10,11 @@ import {
   PlusCircle,
   History,
   ListPlus,
+  ClipboardList,
+  LockKeyhole,
+  Settings2,
   ShoppingCart,
+  Store,
   Tags,
   Wallet,
   type LucideIcon,
@@ -19,7 +23,7 @@ import { Suspense } from 'react'
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
 import { Carregando, MenuOculto } from './ui'
 
-// Três áreas separadas no mesmo app: Produção (cozinha), Compras (mercado) e Financeiro (caixa).
+// Quatro áreas no mesmo app: Produção (cozinha), Vendas (balcão), Compras (mercado) e Financeiro.
 // Cada uma tem o seu menu de no máximo 5 itens.
 
 interface ItemMenu {
@@ -66,10 +70,19 @@ const MENU_COMPRAS: ItemMenu[] = [
   { para: '/compras/historico', rotulo: 'Histórico', icone: History },
 ]
 
-type Area = 'producao' | 'compras' | 'financeiro'
+// Vendas: a tela de vender serve no celular e no tablet/computador do balcão.
+const MENU_VENDAS: ItemMenu[] = [
+  { para: '/vendas', rotulo: 'Vender', icone: Store },
+  { para: '/vendas/dia', rotulo: 'Vendas do dia', icone: ClipboardList },
+  { para: '/vendas/caixa', rotulo: 'Fechar caixa', icone: LockKeyhole },
+  { para: '/vendas/ajustes', rotulo: 'Ajustes', icone: Settings2 },
+]
+
+type Area = 'producao' | 'vendas' | 'compras' | 'financeiro'
 
 const MENUS: Record<Area, { celular: ItemMenu[]; lateral: ItemMenu[] }> = {
   producao: { celular: MENU_PRODUCAO, lateral: MENU_PRODUCAO_LATERAL },
+  vendas: { celular: MENU_VENDAS, lateral: MENU_VENDAS },
   compras: { celular: MENU_COMPRAS, lateral: MENU_COMPRAS },
   financeiro: { celular: MENU_FINANCEIRO, lateral: MENU_FINANCEIRO },
 }
@@ -86,11 +99,22 @@ function modoMercado(pathname: string): boolean {
   return partes.length === 2 || (partes.length === 3 && partes[2] === 'finalizar')
 }
 
+/** "Modo PDV": na tela de vender o celular também usa a tela toda (a tela tem o botão para sair). */
+function modoPdv(pathname: string): boolean {
+  return pathname === '/vendas' || pathname === '/vendas/'
+}
+
+function areaDe(pathname: string): Area {
+  for (const a of ['financeiro', 'compras', 'vendas'] as const) if (pathname === `/${a}` || pathname.startsWith(`/${a}/`)) return a
+  return 'producao'
+}
+
 export default function Layout() {
   const { pathname } = useLocation()
-  const area: Area = pathname.startsWith('/financeiro') ? 'financeiro' : pathname.startsWith('/compras') ? 'compras' : 'producao'
+  const area = areaDe(pathname)
   const { celular: menu, lateral: menuLateral } = MENUS[area]
-  const mercado = modoMercado(pathname)
+  const pdv = modoPdv(pathname)
+  const mercado = modoMercado(pathname) || pdv
   const raiz = area === 'producao' ? '/' : `/${area}`
   const marcadoPorOutraTela = (item: ItemMenu) => !!item.tambem?.some((p) => pathname === p || pathname.startsWith(`${p}/`))
 
@@ -100,7 +124,7 @@ export default function Layout() {
         {/* Menu lateral (computador) */}
         <aside className="no-print fixed inset-y-0 left-0 z-30 hidden w-60 flex-col gap-6 border-r border-borda bg-superficie p-4 md:flex">
           <Marca />
-          <TrocaArea area={area} />
+          <TrocaArea area={area} grade />
           <nav className="flex flex-col gap-1" aria-label="Menu principal">
             {menuLateral.map((item) => (
               <NavLink
@@ -123,14 +147,16 @@ export default function Layout() {
         {/* Topo (celular) */}
         {!mercado && (
           <header className="no-print sticky top-0 z-20 flex items-center justify-between gap-3 border-b border-borda bg-creme/95 px-4 py-2 backdrop-blur md:hidden">
-            <Marca />
+            <Marca simboloSome />
             <TrocaArea area={area} />
           </header>
         )}
 
         <main
-          className={`mx-auto max-w-2xl px-4 md:pt-8 md:pb-28 print:max-w-none print:p-0 ${
-            mercado ? 'pt-[max(0.75rem,env(safe-area-inset-top))] pb-32' : 'pt-4 pb-44'
+          className={`mx-auto px-4 print:max-w-none print:p-0 ${
+            pdv
+              ? 'max-w-7xl pt-[max(0.75rem,env(safe-area-inset-top))] pb-36 md:pt-6 lg:pb-8'
+              : `max-w-2xl md:pt-8 md:pb-28 ${mercado ? 'pt-[max(0.75rem,env(safe-area-inset-top))] pb-32' : 'pt-4 pb-44'}`
           }`}
         >
           <Suspense fallback={<Carregando />}>
@@ -151,7 +177,7 @@ export default function Layout() {
                 to={item.para}
                 end={item.para === raiz}
                 className={({ isActive }) =>
-                  `flex h-[4.5rem] flex-col items-center justify-center gap-1 text-xs font-medium ${isActive || marcadoPorOutraTela(item) ? 'text-marca' : 'text-suave'}`
+                  `flex h-[4.5rem] flex-col items-center justify-center gap-1 px-1 text-center text-xs leading-tight font-medium ${isActive || marcadoPorOutraTela(item) ? 'text-marca' : 'text-suave'}`
                 }
               >
                 {({ isActive }) => (
@@ -173,31 +199,38 @@ export default function Layout() {
   )
 }
 
-function Marca() {
+function Marca({ simboloSome = false }: { simboloSome?: boolean }) {
+  // Em telas bem estreitas (menos de 400 px) o topo fica só com as áreas, para caberem as quatro.
   return (
-    <Link to="/" className="flex min-w-0 shrink items-center gap-2" aria-label="Início">
+    <Link to="/" className={`flex min-w-0 shrink items-center gap-2 ${simboloSome ? 'max-[399px]:hidden' : ''}`} aria-label="Início">
       <img src="/logo-simbolo.png" alt="" width="48" height="36" className="h-9 w-auto" />
-      <img src="/logo-nome.webp" alt="Euforia Confeitaria" width="320" height="106" className="h-8 w-auto max-[519px]:hidden" />
+      <img src="/logo-nome.webp" alt="Euforia Confeitaria" width="320" height="106" className="h-8 w-auto max-[599px]:hidden" />
     </Link>
   )
 }
 
 const AREAS: { area: Area; para: string; rotulo: string }[] = [
   { area: 'producao', para: '/', rotulo: 'Produção' },
+  { area: 'vendas', para: '/vendas', rotulo: 'Vendas' },
   { area: 'compras', para: '/compras', rotulo: 'Compras' },
-  { area: 'financeiro', para: '/financeiro', rotulo: 'Financeiro' },
+  { area: 'financeiro', para: '/financeiro', rotulo: 'Finanças' },
 ]
 
-function TrocaArea({ area }: { area: Area }) {
+/** Troca de área. `grade`: 2 × 2 (menu lateral, que é estreito para quatro lado a lado). */
+function TrocaArea({ area, grade = false }: { area: Area; grade?: boolean }) {
   return (
-    <div className="flex min-w-0 rounded-full bg-marca-clara p-1" role="tablist" aria-label="Área do app">
+    <div
+      className={`min-w-0 bg-marca-clara p-1 ${grade ? 'grid grid-cols-2 gap-1 rounded-2xl' : 'flex rounded-full max-[399px]:flex-1'}`}
+      role="tablist"
+      aria-label="Área do app"
+    >
       {AREAS.map((a) => (
         <Link
           key={a.area}
           to={a.para}
           role="tab"
           aria-selected={area === a.area}
-          className={`flex min-h-10 flex-1 items-center justify-center rounded-full px-2.5 text-sm font-semibold whitespace-nowrap max-[389px]:px-2 max-[389px]:text-[13px] ${
+          className={`flex min-h-10 grow items-center justify-center rounded-full px-2.5 text-sm font-semibold whitespace-nowrap max-[439px]:px-1.5 max-[439px]:text-[13px] ${
             area === a.area ? 'bg-superficie text-marca shadow-sm' : 'text-marca-escura'
           }`}
         >

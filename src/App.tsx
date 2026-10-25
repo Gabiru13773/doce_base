@@ -36,6 +36,10 @@ const ItemEstoquePage = lazy(() => import('./modules/estoque/ItemEstoquePage'))
 const ContagemPage = lazy(() => import('./modules/estoque/ContagemPage'))
 const ProducaoPage = lazy(() => import('./modules/producao/ProducaoPage'))
 const RegistrarProducaoPage = lazy(() => import('./modules/producao/RegistrarProducaoPage'))
+const PdvPage = lazy(() => import('./modules/vendas/PdvPage'))
+const VendasDiaPage = lazy(() => import('./modules/vendas/VendasDiaPage'))
+const FecharCaixaPage = lazy(() => import('./modules/vendas/FecharCaixaPage'))
+const AjustesPdvPage = lazy(() => import('./modules/vendas/AjustesPdvPage'))
 
 export default function App() {
   const { carregando, usuario } = useAuth()
@@ -75,6 +79,10 @@ export default function App() {
         <Route path="compras/:id" element={<FazerCompraPage />} />
         <Route path="compras/:id/lista" element={<MontarCompraPage />} />
         <Route path="compras/:id/finalizar" element={<FinalizarCompraPage />} />
+        <Route path="vendas" element={<PdvPage />} />
+        <Route path="vendas/dia" element={<VendasDiaPage />} />
+        <Route path="vendas/caixa" element={<FecharCaixaPage />} />
+        <Route path="vendas/ajustes" element={<AjustesPdvPage />} />
         <Route path="estoque" element={<EstoquePage />} />
         <Route path="estoque/contagem" element={<ContagemPage />} />
         <Route path="estoque/insumo/:id" element={<ItemEstoquePage />} />

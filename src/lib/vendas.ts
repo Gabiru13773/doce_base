@@ -41,6 +41,8 @@ export interface ItemVenda {
 export interface Pagamento {
   forma: FormaPagamento
   valor: number
+  /** taxa desta parte, calculada na hora da venda (se a taxa mudar depois, a venda guarda a de então) */
+  taxa?: number
 }
 
 export interface ConfigPdv {
@@ -135,6 +137,14 @@ export function taxasVenda(pagamentos: Pagamento[], c: Pick<ConfigPdv, 'taxa_deb
   return centavos(pagamentos.reduce((s, p) => s + (p.valor > 0 ? centavos((p.valor * pctTaxa(p.forma, c)) / 100) : 0), 0))
 }
 
+/** Pagamentos com a taxa de cada parte já calculada (guardada na venda). */
+export function pagamentosComTaxa(
+  pagamentos: Pagamento[],
+  c: Pick<ConfigPdv, 'taxa_debito' | 'taxa_credito' | 'taxa_pix' | 'comissao_ifood'>,
+): Required<Pagamento>[] {
+  return juntarPagamentos(pagamentos).map((p) => ({ ...p, taxa: centavos((p.valor * pctTaxa(p.forma, c)) / 100) }))
+}
+
 /** Junta pagamentos da mesma forma e tira os zerados. */
 export function juntarPagamentos(pagamentos: Pagamento[]): Pagamento[] {
   const soma = new Map<FormaPagamento, number>()
@@ -225,11 +235,16 @@ export function resumoDia(vendas: VendaCalc[], c: Pick<ConfigPdv, 'taxa_debito' 
     total += v.total
     descontos += v.desconto
     porCanal[v.canal] += v.total
-    for (const p of v.pagamentos) {
-      if (!(p.valor > 0)) continue
+    // Vale a taxa guardada na venda (a taxa da maquininha pode ter mudado depois): a de cada
+    // pagamento ou, se só houver o total da venda, ele dividido na proporção da taxa de cada forma.
+    const pagos = v.pagamentos.filter((p) => p.valor > 0)
+    const calculadas = pagos.map((p) => (p.taxa != null ? p.taxa : centavos((p.valor * pctTaxa(p.forma, c)) / 100)))
+    const semTaxaPropria = pagos.every((p) => p.taxa == null)
+    const somaCalc = calculadas.reduce((s, x) => s + x, 0)
+    pagos.forEach((p, i) => {
       porForma[p.forma] += p.valor
-      taxasPorForma[p.forma] += centavos((p.valor * pctTaxa(p.forma, c)) / 100)
-    }
+      taxasPorForma[p.forma] += semTaxaPropria && v.taxas > 0 && somaCalc > 0 ? (v.taxas * calculadas[i]) / somaCalc : calculadas[i]
+    })
   }
   const arred = <K extends string>(r: Record<K, number>) => {
     for (const k in r) r[k] = centavos(r[k])

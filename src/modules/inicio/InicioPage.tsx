@@ -1,14 +1,18 @@
-import { AlertTriangle, Calculator, ChefHat, ChevronRight, CloudOff, CookingPot, Gift, ListPlus, Package, ShoppingCart, type LucideIcon } from 'lucide-react'
+import { AlertTriangle, Calculator, ChefHat, ChevronRight, CloudOff, CookingPot, Gift, ListPlus, Package, ShoppingCart, Store, type LucideIcon } from 'lucide-react'
 import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { Cartao } from '../../components/ui'
 import { precisaComprar } from '../../lib/estoque'
+import { centavos } from '../../lib/compras'
+import { moeda } from '../../lib/format'
 import { modoLocal } from '../../lib/supabase'
 import { useCompras } from '../compras/api'
 import { useSaldos } from '../estoque/api'
+import { hoje as dataDeHoje } from '../financeiro/api'
 import { useInsumos } from '../insumos/api'
 import { useProdutos } from '../produtos/api'
 import { useReceitas } from '../receitas/api'
+import { useVendasDoDia } from '../vendas/api'
 
 function saudacao(hora: number) {
   if (hora >= 5 && hora < 12) return 'Bom dia'
@@ -27,6 +31,12 @@ export default function InicioPage() {
   const agora = new Date()
   // Ex.: "quinta-feira, 16 de outubro"
   const hoje = agora.toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' })
+
+  const vendasHoje = useVendasDoDia(dataDeHoje())
+  const resumoVendas = useMemo(() => {
+    const feitas = (vendasHoje.data ?? []).filter((v) => v.status !== 'cancelada')
+    return { qtd: feitas.length, total: centavos(feitas.reduce((s, v) => s + v.total, 0)) }
+  }, [vendasHoje.data])
 
   const insumos = useInsumos()
   const qtdInsumos = insumos.data?.filter((i) => i.ativo !== false).length
@@ -96,6 +106,24 @@ export default function InicioPage() {
           </Link>
         </div>
       )}
+
+      <Link
+        to="/vendas"
+        className="flex min-h-[72px] items-center gap-4 rounded-2xl bg-marca px-4 py-3 text-white shadow-sm active:bg-marca-escura"
+      >
+        <span className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-white/20">
+          <Store className="size-7" aria-hidden />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-xl font-bold">Vender</span>
+          <span className="block truncate text-white/90">
+            {resumoVendas.qtd > 0
+              ? `Hoje: ${resumoVendas.qtd} ${resumoVendas.qtd === 1 ? 'venda' : 'vendas'} · ${moeda(resumoVendas.total)}`
+              : 'Balcão, WhatsApp e iFood'}
+          </span>
+        </span>
+        <ChevronRight className="size-6 shrink-0" aria-hidden />
+      </Link>
 
       {compraAberta ? (
         <Link

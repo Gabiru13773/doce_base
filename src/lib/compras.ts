@@ -34,7 +34,7 @@ export interface Embalagem {
 }
 
 /** Arredonda para centavos como o banco (numeric(12,2)): meio centavo sobe (1,005 → 1,01). */
-export const centavos = (n: number) => Math.round((n + Math.sign(n) * Number.EPSILON * Math.max(1, Math.abs(n))) * 100) / 100
+export const centavos = (n: number) => Math.round((n + Math.sign(n) * Number.EPSILON * Math.max(1, Math.abs(n))) * 100) / 100 || 0
 
 /** O item foi para o carrinho (pegou o pedido ou levou outro no lugar). */
 export const levou = (i: Pick<ItemCompraCalc, 'status'>) => i.status === 'comprado' || i.status === 'substituido'
