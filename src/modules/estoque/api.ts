@@ -16,6 +16,8 @@ export interface Movimento {
   quantidade: number
   origem: OrigemMovimento
   producao_id: string | null
+  /** venda do PDV que deu esta baixa */
+  venda_id?: string | null
   compra_id: string | null
   observacao: string | null
   feito_por: string | null

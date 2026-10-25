@@ -70,6 +70,9 @@ export interface Titulo {
   observacao: string | null
   /** Compra (módulo Compras) que gerou esta conta a pagar. */
   compra_id?: string | null
+  /** Fechamento de caixa do PDV que gerou esta conta a receber, e a forma (pix, debito, credito, ifood). */
+  fechamento_id?: string | null
+  forma_pdv?: 'pix' | 'debito' | 'credito' | 'ifood' | null
   criado_em: string
   atualizado_em: string
 }
@@ -96,6 +99,8 @@ export interface Lancamento {
   observacao: string | null
   /** Compra (módulo Compras) que gerou este lançamento. */
   compra_id?: string | null
+  /** Fechamento de caixa do PDV que gerou este lançamento (dinheiro do dia). */
+  fechamento_id?: string | null
   criado_em: string
   atualizado_em: string
 }
