@@ -217,6 +217,7 @@ function CartaoProduto({ linha: { produto: p, variacoes, prejuizo, revisar } }: 
                 <span className="shrink-0">
                   <Preco preco={preco} />
                 </span>
+                {variacao.pv_ifood != null && <span className="shrink-0 text-xs text-suave">· iFood {moeda(variacao.pv_ifood)}</span>}
               </li>
             ))}
           </ul>
@@ -225,6 +226,7 @@ function CartaoProduto({ linha: { produto: p, variacoes, prejuizo, revisar } }: 
       {unica && (
         <p className="shrink-0 text-right">
           <Preco preco={unica.preco} grande />
+          {unica.variacao.pv_ifood != null && <span className="block text-xs text-suave">iFood {moeda(unica.variacao.pv_ifood)}</span>}
         </p>
       )}
       <ChevronRight className="size-5 shrink-0 text-suave" aria-hidden />

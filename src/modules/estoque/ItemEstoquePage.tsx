@@ -173,7 +173,8 @@ function Detalhe({ item, movimentos }: { item: ItemEstoque; movimentos: Moviment
 }
 
 function LinhaMovimento({ m, item, aoApagar, apagando }: { m: Movimento; item: ItemEstoque; aoApagar: () => void; apagando: boolean }) {
-  const manual = !m.producao_id && !m.compra_id
+  // Baixa de uma venda do PDV: sai do estoque junto com a venda (cancelando a venda, ela volta).
+  const manual = !m.producao_id && !m.compra_id && !m.venda_id
   return (
     <li className="flex items-start gap-3 px-4 py-3">
       <div className="min-w-0 flex-1">
@@ -190,6 +191,11 @@ function LinhaMovimento({ m, item, aoApagar, apagando }: { m: Movimento; item: I
         {m.compra_id && (
           <Link to={`/compras/${m.compra_id}`} className="inline-flex min-h-11 items-center font-semibold text-marca underline">
             ver compra
+          </Link>
+        )}
+        {m.venda_id && (
+          <Link to={`/vendas/dia?data=${m.data}`} className="inline-flex min-h-11 items-center font-semibold text-marca underline">
+            ver vendas do dia
           </Link>
         )}
       </div>

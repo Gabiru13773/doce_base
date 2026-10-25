@@ -18,9 +18,11 @@ import {
 import { lerNumero, moeda, numero, paraCampo, pct } from '../../lib/format'
 import { custoMaoDeObra, type ConfigPrecificacao } from '../../lib/precificacao'
 import { custoVariacao, precificarVariacao, type VariacaoCalculo } from '../../lib/produtos'
+import { precoNoCanal } from '../../lib/vendas'
 import type { Contexto, ItemReceita, ResultadoCusto, ResultadoPreco } from '../../lib/receitas'
 import type { Insumo } from '../insumos/api'
 import { useContextoCalculo, type Receita } from '../receitas/api'
+import { useConfigPdv } from '../vendas/api'
 import {
   CATEGORIAS_PRODUTO,
   SUGESTOES_VARIACAO,
@@ -143,6 +145,7 @@ interface CamposVariacao {
   pctTaxas: string
   pctMargem: string
   pvManual: string
+  pvIfood: string
   ativo: boolean
 }
 
@@ -163,6 +166,7 @@ function camposVariacao(v: Variacao): CamposVariacao {
     pctTaxas: paraCampo(v.pct_taxas),
     pctMargem: paraCampo(v.pct_margem),
     pvManual: paraCampo(v.pv_manual),
+    pvIfood: paraCampo(v.pv_ifood),
     ativo: v.ativo !== false,
   }
 }
@@ -192,6 +196,7 @@ function invalido(s: string): boolean {
 /** Campos → formato dos cálculos (o que ainda está incompleto conta como zero). */
 function paraCalculo(v: CamposVariacao): Variacao {
   const pv = lerNumero(v.pvManual)
+  const pvIfood = lerNumero(v.pvIfood)
   return {
     id: v.id,
     nome: v.nome.trim() || 'Variação',
@@ -201,6 +206,7 @@ function paraCalculo(v: CamposVariacao): Variacao {
     pct_taxas: opcional(v.pctTaxas),
     pct_margem: opcional(v.pctMargem),
     pv_manual: v.pvManual.trim() && pv > 0 ? pv : null,
+    pv_ifood: v.pvIfood.trim() && pvIfood > 0 ? pvIfood : null,
     ativo: v.ativo,
   }
 }
@@ -214,6 +220,7 @@ interface ErrosVariacao {
   pctMargem?: string
   pctSoma?: string
   pvManual?: string
+  pvIfood?: string
 }
 
 interface Erros {
@@ -252,6 +259,8 @@ function validar(c: Campos, config: ConfigPrecificacao): Erros {
       if (soma >= 100) e.pctSoma = `Custos fixos + taxas + lucro somam ${pct(soma)}. Precisam somar menos de 100%.`
     }
     if (v.pvManual.trim() && !(lerNumero(v.pvManual) > 0)) e.pvManual = 'Digite um preço maior que zero'
+    // Mesmo arredondamento do salvar (centavos): "0,001" viraria vazio sem avisar.
+    if (v.pvIfood.trim() && !(Math.round(lerNumero(v.pvIfood) * 100) > 0)) e.pvIfood = 'Digite um preço maior que zero (ou deixe vazio)'
     if (Object.keys(e).length) erros.variacoes[v.id] = e
   }
   return erros
@@ -820,6 +829,7 @@ function CartaoPreco({
   const custoReceitas = somaLinhas('receita')
   const custoInsumos = somaLinhas('insumo')
   const problemas = [...new Set([...custo.problemas, ...itensApagados(v.itens, contexto, receitasAtivas, insumosAtivos)])]
+  const pdv = useConfigPdv()
   const prejuizo = preco.pvFinal !== null && !preco.abaixoDoCusto && preco.lucroPorUnidade < 0
   const semItens = v.itens.length === 0 || custo.custoDireto <= 0
 
@@ -934,6 +944,15 @@ function CartaoPreco({
         </>
       )}
 
+      <PrecoIfood
+        v={v}
+        erro={erros.pvIfood}
+        mudar={mudar}
+        precoBalcao={semItens ? null : preco.pvFinal}
+        acrescimo={pdv.data?.acrescimo_ifood ?? null}
+        sujo={sujo}
+      />
+
       <details
         open={maisAberto}
         onToggle={(e) => setMaisAberto(e.currentTarget.open)}
@@ -976,6 +995,52 @@ function CartaoPreco({
         </div>
       </details>
     </div>
+  )
+}
+
+/** Preço próprio no iFood (opcional). Vazio = preço do balcão + o acréscimo do iFood dos Ajustes do PDV. */
+function PrecoIfood({
+  v,
+  erro,
+  mudar,
+  precoBalcao,
+  acrescimo,
+  sujo,
+}: {
+  v: CamposVariacao
+  erro?: string
+  mudar: MudarVariacao
+  precoBalcao: number | null
+  /** null enquanto os Ajustes do PDV carregam */
+  acrescimo: number | null
+  sujo: boolean
+}) {
+  const automatico = acrescimo === null ? null : precoNoCanal(precoBalcao, null, 'ifood', acrescimo)
+  const ajuda = (
+    <>
+      Vazio = preço do balcão + o acréscimo do iFood (
+      <Link to="/vendas/ajustes" onClick={(e) => confirmarSaida(e, sujo)} className="font-semibold text-marca underline">
+        Ajustes do PDV
+      </Link>
+      ){automatico !== null && acrescimo !== null && (
+        <>
+          : <strong className="text-tinta">{moeda(automatico)}</strong>
+          {acrescimo > 0 ? ` (+${pct(acrescimo)})` : ' (sem acréscimo)'}
+        </>
+      )}
+      .
+    </>
+  )
+  return (
+    <EntradaNumero
+      rotulo="Preço no iFood (opcional)"
+      prefixo="R$"
+      placeholder={automatico !== null ? paraCampo(automatico) : 'Ex.: 99,90'}
+      value={v.pvIfood}
+      onChange={(e) => mudar('pvIfood', e.target.value)}
+      erro={erro}
+      ajuda={ajuda}
+    />
   )
 }
 

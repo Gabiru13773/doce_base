@@ -20,6 +20,8 @@ export const SUGESTOES_VARIACAO = ['Prato MDF', 'Bandeja plástica', 'Caixa prem
 export interface Variacao extends VariacaoCalculo {
   /** Variação escondida (não aparece nos pedidos), sem perder o histórico. */
   ativo: boolean
+  /** Preço próprio no iFood (opcional). Vazio = preço do balcão + o acréscimo do iFood (Ajustes do PDV). */
+  pv_ifood: number | null
 }
 
 export interface Produto {
@@ -63,6 +65,7 @@ function normalizar(p: Produto): Produto {
         pct_taxas: num(v.pct_taxas),
         pct_margem: num(v.pct_margem),
         pv_manual: num(v.pv_manual),
+        pv_ifood: num(v.pv_ifood),
         ativo: v.ativo !== false,
       })),
   }
@@ -100,6 +103,7 @@ function limparVariacao(v: Variacao): Variacao {
     pct_taxas: casas(v.pct_taxas, 2),
     pct_margem: casas(v.pct_margem, 2),
     pv_manual: precoManual(v.pv_manual),
+    pv_ifood: precoManual(v.pv_ifood ?? null),
     ativo: v.ativo !== false,
   }
 }
@@ -150,6 +154,7 @@ export function variacaoVazia(nome = ''): Variacao {
     pct_taxas: null,
     pct_margem: null,
     pv_manual: null,
+    pv_ifood: null,
     ativo: true,
   }
 }
