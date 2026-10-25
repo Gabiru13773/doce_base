@@ -3,14 +3,14 @@ import { AlertTriangle, ArrowLeft, CheckCircle2, FileUp, Landmark } from 'lucide
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { BarraAcao, Botao, Cartao, Carregando, Erro, Pilulas, TituloPagina, Vazio } from '../../../components/ui'
-import { paraLancamentos, sugerir, type LinhaConfirmada, type LinhaImportacao } from '../../../lib/conciliacao'
+import { folgaPdv, paraLancamentos, sugerir, type LinhaConfirmada, type LinhaImportacao } from '../../../lib/conciliacao'
 import { novoId } from '../../../lib/db'
 import { baixasPorTitulo, situacaoTitulo } from '../../../lib/financeiro'
 import { moeda } from '../../../lib/format'
 import { decodificarOfx, lerOfx, type ExtratoOfx } from '../../../lib/ofx'
 import { hoje, useCategoriasFin, useContasFin, useLancamentos, useSalvarLancamentos, useTitulos } from '../api'
 import { SeletorConta } from '../componentes/Seletores'
-import { LinhaRevisao, escolhaFinal, type Escolha, type TituloAberto } from './LinhaRevisao'
+import { LinhaRevisao, escolhaFinal, partesRepasse, type Escolha, type TituloAberto } from './LinhaRevisao'
 
 // Importar o extrato do banco (OFX): escolher a conta e o arquivo → revisar o que o app
 // sugeriu para cada linha → gravar tudo de uma vez (tudo ou nada).
@@ -114,6 +114,18 @@ export default function ImportarOfxPage() {
   // Id de cada lançamento, gerado uma vez por arquivo (na mesma ordem das linhas): se a importação
   // for repetida (toque duplo, rede que caiu depois de gravar), atualiza as mesmas linhas.
   const idsLinhas = useMemo(() => (arquivo?.extrato.transacoes ?? []).map(() => novoId()), [arquivo])
+  // O repasse do iFood vira um lançamento por conta do PDV: ids das partes 2, 3… (mesma ideia).
+  const idsPartes = useRef<{ arquivo: Arquivo | null; ids: Map<string, string> }>({ arquivo: null, ids: new Map() })
+  function idParte(i: number, k: number) {
+    if (idsPartes.current.arquivo !== arquivo) idsPartes.current = { arquivo, ids: new Map() }
+    const chave = `${i}#${k}`
+    let id = idsPartes.current.ids.get(chave)
+    if (!id) {
+      id = novoId()
+      idsPartes.current.ids.set(chave, id)
+    }
+    return id
+  }
 
   const titulosAbertos = useMemo<TituloAberto[]>(() => {
     const baixas = baixasPorTitulo(lancamentos, titulos)
@@ -128,6 +140,7 @@ export default function ImportarOfxPage() {
         categoria_id: t.categoria_id,
         vencimento: t.vencimento,
         falta: s.falta,
+        forma_pdv: t.fechamento_id ? (t.forma_pdv ?? null) : null,
       }))
       .sort((a, b) => a.vencimento.localeCompare(b.vencimento))
   }, [titulos, lancamentos, dataHoje])
@@ -150,7 +163,7 @@ export default function ImportarOfxPage() {
       else novas++
       if (!e.incluir) continue
       marcadas++
-      if (e.modo === 'titulo' && e.tituloId) ligadas++
+      if ((e.modo === 'titulo' && e.tituloId) || (e.modo === 'repasse' && partesRepasse(l).length > 0)) ligadas++
       else if (e.modo === 'transferencia') {
         if (!e.contaId) transferenciaSemConta++
       } else if (!e.categoriaId) semCategoria++
@@ -160,19 +173,25 @@ export default function ImportarOfxPage() {
 
   // Contas a pagar/receber escolhidas em cada linha marcada: a mesma conta não pode ser baixada
   // por mais do que falta nela (ex.: dois Pix iguais ligados à mesma conta).
+  // (No Pix do PDV, várias linhas baixam a mesma conta; no repasse do iFood, uma linha baixa várias.)
   const usoTitulos = useMemo(() => {
-    const porTitulo = new Map<string, LinhaImportacao[]>()
+    const porTitulo = new Map<string, { l: LinhaImportacao; valor: number }[]>()
+    const usar = (id: string, l: LinhaImportacao, valor: number) => porTitulo.set(id, [...(porTitulo.get(id) ?? []), { l, valor }])
     for (const l of linhas) {
       const e = resumo.escolhas.get(l.transacao.fitid)!
-      if (!e.incluir || l.jaImportada || e.modo !== 'titulo' || !e.tituloId) continue
-      porTitulo.set(e.tituloId, [...(porTitulo.get(e.tituloId) ?? []), l])
+      if (!e.incluir || l.jaImportada) continue
+      if (e.modo === 'titulo' && e.tituloId) usar(e.tituloId, l, Math.abs(l.transacao.valor))
+      else if (e.modo === 'repasse') for (const p of partesRepasse(l)) usar(p.tituloId, l, p.valor)
     }
     const problemas: string[] = []
-    for (const [id, ls] of porTitulo) {
+    for (const [id, usos] of porTitulo) {
       const t = tituloPorId.get(id)
       if (!t) continue
-      const soma = ls.reduce((s, l) => s + Math.abs(l.transacao.valor), 0)
-      if (soma <= t.falta + 0.005) continue
+      const ls = usos.map((u) => u.l)
+      const soma = usos.reduce((s, u) => s + u.valor, 0)
+      // Cartão/iFood do PDV: o banco pode pagar alguns centavos a mais (a baixa usa o valor do banco).
+      const folga = ls.length === 1 ? folgaPdv(t.forma_pdv, t.falta) : 0
+      if (soma <= t.falta + folga + 0.005) continue
       const quais = ls.map((l) => `${diaMesCurto(l.transacao.data)} (${moeda(Math.abs(l.transacao.valor))})`).join(', ')
       problemas.push(
         ls.length === 1
@@ -182,7 +201,7 @@ export default function ImportarOfxPage() {
     }
     // Para a revisão: em qual linha cada conta já foi escolhida (as outras linhas não a oferecem).
     const dono = new Map<string, string>()
-    for (const [id, ls] of porTitulo) dono.set(id, ls[0].transacao.fitid)
+    for (const [id, usos] of porTitulo) dono.set(id, usos[0].l.transacao.fitid)
     return { problemas, dono }
   }, [linhas, resumo.escolhas, tituloPorId])
   // Mesma referência enquanto as escolhas de conta não mudam (as linhas são memo).
@@ -196,7 +215,7 @@ export default function ImportarOfxPage() {
     for (const l of ordenadas) {
       if (filtro === 'sem_categoria') {
         const e = resumo.escolhas.get(l.transacao.fitid)!
-        if (l.jaImportada || e.modo === 'transferencia' || (e.modo === 'titulo' && e.tituloId) || e.categoriaId) continue
+        if (l.jaImportada || e.modo === 'transferencia' || e.modo === 'repasse' || (e.modo === 'titulo' && e.tituloId) || e.categoriaId) continue
       }
       const lista = grupos.get(l.transacao.data)
       if (lista) lista.push(l)
@@ -281,19 +300,35 @@ export default function ImportarOfxPage() {
     for (const [i, l] of linhas.entries()) {
       const e = resumo.escolhas.get(l.transacao.fitid)!
       if (!e.incluir || l.jaImportada) continue
-      ids.push(idsLinhas[i])
       const titulo = e.modo === 'titulo' && e.tituloId ? tituloPorId.get(e.tituloId) : undefined
       const transferencia = e.modo === 'transferencia' && e.contaId ? e.contaId : null
+      // Repasse do iFood: um lançamento por conta do PDV (todas ainda em aberto).
+      const partes = e.modo === 'repasse' ? partesRepasse(l) : []
+      if (partes.some((p) => !tituloPorId.has(p.tituloId))) {
+        setErroSalvar(`O repasse de ${diaMesCurto(l.transacao.data)} aponta para uma conta do PDV que não está mais em aberto. Toque nele e escolha outra opção.`)
+        return
+      }
+      const primeiraParte = partes.length > 0 ? tituloPorId.get(partes[0].tituloId) : undefined
+      ids.push(idsLinhas[i])
+      for (let k = 1; k < partes.length; k++) ids.push(idParte(i, k))
       if (titulo) baixas++
+      baixas += partes.length
       if (transferencia) transferencias++
       confirmadas.push({
         transacao: l.transacao,
         descricao: l.descricao,
         pessoa: l.pessoa ?? (titulo?.pessoa || null),
         formaPagamento: l.formaPagamento,
-        categoriaId: titulo ? (titulo.categoria_id ?? e.categoriaId) : e.modo === 'categoria' ? e.categoriaId : null,
+        categoriaId: titulo
+          ? (titulo.categoria_id ?? e.categoriaId)
+          : primeiraParte
+            ? (primeiraParte.categoria_id ?? e.categoriaId)
+            : e.modo === 'categoria'
+              ? e.categoriaId
+              : null,
         tituloId: titulo?.id ?? null,
         contaTransferenciaId: transferencia,
+        titulosPdv: partes.length > 0 ? partes.map((p) => ({ tituloId: p.tituloId, valor: p.valor })) : null,
       })
     }
     if (confirmadas.length === 0) return
@@ -301,7 +336,7 @@ export default function ImportarOfxPage() {
       const lista = paraLancamentos(confirmadas, contaId, { cartaoCredito: arquivo.extrato.cartaoCredito }).map((d, k) => ({ ...d, id: ids[k] }))
       await salvar.mutateAsync({ novos: true, lista })
       if (origemAtual) gravarLocal(chaveOrigem(contaId), origemAtual)
-      setResultado({ lancamentos: confirmadas.length, baixas, transferencias })
+      setResultado({ lancamentos: lista.length, baixas, transferencias })
       setPasso('pronto')
     } catch (e) {
       const msg = e instanceof Error ? e.message : ''

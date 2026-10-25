@@ -19,6 +19,30 @@ export interface SugestaoTitulo {
   pontos: number
 }
 
+export type FormaPdv = 'pix' | 'debito' | 'credito' | 'ifood'
+
+/**
+ * Recebimento das vendas do PDV (o fechamento do caixa cria uma conta a receber por forma e por dia,
+ * pelo valor líquido). O banco não paga do mesmo jeito: Pix cai um crédito por cliente (cada um baixa
+ * parte da conta do dia), cartão cai de uma vez com centavos de diferença e o iFood repassa a semana
+ * toda num crédito só (baixa várias contas, um lançamento para cada).
+ */
+export interface SugestaoPdv {
+  tipo: 'parcial' | 'aproximado' | 'soma'
+  forma: FormaPdv
+  confianca: Confianca
+  /**
+   * Contas do PDV e quanto esta linha baixa de cada uma (na soma, a última fica com a diferença de
+   * centavos, para a soma bater com o banco). `falta` é quanto faltava antes desta linha (no Pix,
+   * já descontadas as linhas anteriores do mesmo arquivo); `dia` é o dia das vendas.
+   */
+  titulos: { tituloId: string; valor: number; falta: number; vencimento: string; dia: string }[]
+  /** Banco − o que faltava (aproximado e soma; no parcial é negativo: a parte que continua em aberto). */
+  diferenca: number
+  /** Quanto continua em aberto nessas contas depois desta linha (0 quando quita; negativo = veio a mais). */
+  restante: number
+}
+
 export interface LinhaImportacao {
   transacao: TransacaoOfx
   direcao: Direcao
@@ -34,6 +58,11 @@ export interface LinhaImportacao {
   titulo: SugestaoTitulo | null
   /** Outras contas a pagar/receber com o mesmo valor e vencimento próximo. */
   alternativas: SugestaoTitulo[]
+  /**
+   * Recebimento das vendas do PDV. No parcial e no aproximado, `titulo` aponta para a mesma conta;
+   * na soma (repasse do iFood), `titulo` fica vazio e a linha baixa todas as contas de `pdv.titulos`.
+   */
+  pdv: SugestaoPdv | null
   categoriaId: string | null
   confiancaCategoria: Confianca | null
   /** De onde veio a categoria sugerida. */
@@ -54,7 +83,8 @@ export interface ContextoConciliacao {
     'id' | 'tipo' | 'data' | 'descricao' | 'pessoa' | 'categoria_id' | 'conta_id' | 'conta_destino_id' | 'valor' | 'titulo_id' | 'ofx_fitid'
   > &
     Partial<Pick<Lancamento, 'ofx_conta_id'>>)[]
-  titulos: Pick<Titulo, 'id' | 'tipo' | 'descricao' | 'pessoa' | 'categoria_id' | 'valor' | 'vencimento'>[]
+  titulos: (Pick<Titulo, 'id' | 'tipo' | 'descricao' | 'pessoa' | 'categoria_id' | 'valor' | 'vencimento'> &
+    Partial<Pick<Titulo, 'emissao' | 'fechamento_id' | 'forma_pdv'>>)[]
   categorias: Pick<CategoriaFin, 'id' | 'tipo' | 'nome' | 'ativo'>[]
   /** Outras contas (para reconhecer transferências entre contas próprias). */
   contas?: Pick<ContaFin, 'id' | 'nome' | 'tipo' | 'ativo'>[]
@@ -217,6 +247,15 @@ const MESMA_TITULARIDADE = /MESMA TITULARIDADE|MESMA TITULAR|MESMO TITULAR|ENTRE
 
 const cent = (v: number) => Math.round(Math.abs(v) * 100)
 
+/** FITID das outras partes de uma transação que baixou várias contas: "FITID#2", "FITID#3"… */
+const FITID_PARTE = /^(.+)#(\d+)$/
+
+/** Diferença aceita entre o crédito do cartão/iFood e a conta do PDV: R$ 0,50 ou 1%. */
+export function folgaPdv(forma: FormaPdv | null | undefined, falta: number): number {
+  if (forma !== 'debito' && forma !== 'credito' && forma !== 'ifood') return 0
+  return Math.max(0.5, Math.round(Math.abs(falta)) / 100)
+}
+
 function diasEntre(a: string, b: string): number {
   return Math.round((Date.parse(`${a}T00:00:00Z`) - Date.parse(`${b}T00:00:00Z`)) / 86400000)
 }
@@ -240,19 +279,32 @@ export function sugerir(transacoes: TransacaoOfx[], ctx: ContextoConciliacao): L
   const porFitid = new Map<string, { id: string; chave: string }[]>()
   // Candidatas a duplicata, por sentido + valor em centavos.
   const parecidas = new Map<string, { id: string; data: string; janela: number }[]>()
+  const doExtratoDestaConta = (l: ContextoConciliacao['lancamentos'][number]) =>
+    !!l.ofx_fitid && (l.ofx_conta_id ? l.ofx_conta_id === contaId : true) && !!sentidoNaConta(l, contaId)
+  // Uma transação que baixou várias contas do PDV (repasse do iFood) virou vários lançamentos:
+  // FITID, FITID#2, FITID#3… Valem como um só, pelo total, guardado no do FITID original.
+  const fitidsDaConta = new Set(ctx.lancamentos.filter(doExtratoDestaConta).map((l) => l.ofx_fitid!))
+  const extraDasPartes = new Map<string, number>()
+  const partes = new Set<string>()
+  for (const l of ctx.lancamentos) {
+    const m = l.ofx_fitid ? FITID_PARTE.exec(l.ofx_fitid) : null
+    if (!m || !doExtratoDestaConta(l) || !fitidsDaConta.has(m[1])) continue
+    partes.add(l.id)
+    extraDasPartes.set(m[1], (extraDasPartes.get(m[1]) ?? 0) + cent(l.valor))
+  }
   for (const l of ctx.lancamentos) {
     const sentido = sentidoNaConta(l, contaId)
-    if (!sentido) continue
-    const doExtratoDestaConta = !!l.ofx_fitid && (l.ofx_conta_id ? l.ofx_conta_id === contaId : true)
-    if (l.ofx_fitid && doExtratoDestaConta) {
-      const item = { id: l.id, chave: `${sentido}|${cent(l.valor)}` }
+    if (!sentido || partes.has(l.id)) continue
+    const valorTotal = cent(l.valor) + (l.ofx_fitid ? (extraDasPartes.get(l.ofx_fitid) ?? 0) : 0)
+    if (l.ofx_fitid && doExtratoDestaConta(l)) {
+      const item = { id: l.id, chave: `${sentido}|${valorTotal}` }
       porFitid.set(l.ofx_fitid, [...(porFitid.get(l.ofx_fitid) ?? []), item])
       if (fitidsDoArquivo.has(l.ofx_fitid)) continue
     }
     // Anotado à mão (±2 dias), transferência vinda da outra conta (±2) ou importado com outro FITID (mesmo dia:
     // alguns bancos mudam o FITID de um extrato para outro).
     const janela = !l.ofx_fitid || l.tipo === 'transferencia' ? 2 : 0
-    const chave = `${sentido}|${cent(l.valor)}`
+    const chave = `${sentido}|${valorTotal}`
     const lista = parecidas.get(chave)
     const item = { id: l.id, data: l.data, janela }
     if (lista) lista.push(item)
@@ -263,9 +315,12 @@ export function sugerir(transacoes: TransacaoOfx[], ctx: ContextoConciliacao): L
   // não serve: pagaria mais do que o devido).
   const baixas = baixasPorTitulo(ctx.lancamentos, ctx.titulos)
   const titulosPorValor = new Map<string, { t: ContextoConciliacao['titulos'][number]; falta: number; palavras: string[] }[]>()
+  // Contas a receber do fechamento do caixa (PDV), em aberto.
+  const abertosPdv: { t: ContextoConciliacao['titulos'][number]; forma: FormaPdv; falta: number }[] = []
   for (const t of ctx.titulos) {
     const s = situacaoTitulo(t, baixas, ctx.hoje)
     if (s.situacao === 'pago') continue
+    if (t.fechamento_id && t.tipo === 'receber' && t.forma_pdv && s.falta > 0) abertosPdv.push({ t, forma: t.forma_pdv, falta: s.falta })
     const item = { t, falta: s.falta, palavras: palavrasChave(t.descricao, t.pessoa) }
     const direcao: Direcao = t.tipo === 'pagar' ? 'saida' : 'entrada'
     const chave = `${direcao}|${cent(s.falta)}`
@@ -354,9 +409,9 @@ export function sugerir(transacoes: TransacaoOfx[], ctx: ContextoConciliacao): L
     tituloUsado.add(c.tituloId)
   }
 
+  // Possível duplicata e transferência entre contas próprias (na ordem do arquivo).
   const duplicataUsada = new Set<string>()
-
-  return base.map(({ tr, direcao, palavras, candidatos, jaImportada, conflitoFitid }, i) => {
+  const outros = base.map(({ tr, direcao, jaImportada, conflitoFitid }) => {
     let duplicataDe: string | null = conflitoFitid
     if (!jaImportada && !duplicataDe) {
       let melhor = Infinity
@@ -370,12 +425,6 @@ export function sugerir(transacoes: TransacaoOfx[], ctx: ContextoConciliacao): L
       if (duplicataDe) duplicataUsada.add(duplicataDe)
     }
 
-    const titulo = tituloDe.get(i) ?? null
-    // Um título já sugerido para uma linha não aparece como alternativa nas outras (senão dá para
-    // baixar a mesma conta duas vezes).
-    const alternativas = candidatos.filter((c) => !tituloUsado.has(c.tituloId))
-
-    // Transferência entre contas próprias.
     const n = normalizar(tr.descricao)
     let contaTransferenciaId: string | null = null
     for (const c of outrasContas) {
@@ -388,7 +437,21 @@ export function sugerir(transacoes: TransacaoOfx[], ctx: ContextoConciliacao): L
     if (!contaTransferenciaId && /\bSAQUE\b/.test(n) && direcao === 'saida') {
       contaTransferenciaId = outrasContas.find((c) => c.tipo === 'caixa')?.id ?? null
     }
-    const talvezTransferencia = !titulo && (!!contaTransferenciaId || MESMA_TITULARIDADE.test(n) || /\bSAQUE\b/.test(n))
+    const pareceTransferencia = !!contaTransferenciaId || MESMA_TITULARIDADE.test(n) || /\bSAQUE\b/.test(n)
+    return { duplicataDe, n, contaTransferenciaId, pareceTransferencia }
+  })
+
+  // 3º passo: recebimentos das vendas do PDV, nas entradas que não ligaram a nenhuma conta.
+  const pdvDe = sugerirPdv(base, outros, abertosPdv, tituloDe, tituloUsado)
+
+  return base.map(({ tr, direcao, palavras, candidatos, jaImportada }, i) => {
+    const { duplicataDe, n, contaTransferenciaId, pareceTransferencia } = outros[i]
+    const titulo = tituloDe.get(i) ?? null
+    const pdv = pdvDe.get(i) ?? null
+    // Um título já sugerido para uma linha não aparece como alternativa nas outras (senão dá para
+    // baixar a mesma conta duas vezes).
+    const alternativas = candidatos.filter((c) => !tituloUsado.has(c.tituloId))
+    const talvezTransferencia = !titulo && !pdv && pareceTransferencia
 
     // Categoria: do título, do histórico ou das regras.
     let categoriaId: string | null = null
@@ -431,11 +494,148 @@ export function sugerir(transacoes: TransacaoOfx[], ctx: ContextoConciliacao): L
       origemCategoria,
       talvezTransferencia,
       contaTransferenciaId,
+      pdv,
       descricao: limparDescricao(tr.descricao),
       pessoa: extrairPessoa(tr.descricao),
       formaPagamento: adivinharForma(tr, ctx.cartaoCredito),
     }
   })
+}
+
+type AbertoPdv = { t: ContextoConciliacao['titulos'][number]; forma: FormaPdv; falta: number }
+
+/**
+ * Liga as entradas às contas a receber do PDV (só as que não ligaram a nenhuma conta pelo valor exato).
+ * Cartão primeiro (um crédito ≈ uma conta), depois o repasse do iFood (um crédito = soma de dias
+ * seguidos) e por fim o Pix (cada crédito baixa parte da conta do dia, sem passar do que falta).
+ * Marca em `tituloDe`/`tituloUsado` as contas do parcial e do aproximado, como no 2º passo.
+ */
+function sugerirPdv(
+  base: { tr: TransacaoOfx; direcao: Direcao; jaImportada: boolean }[],
+  outros: { duplicataDe: string | null; n: string; pareceTransferencia: boolean }[],
+  abertos: AbertoPdv[],
+  tituloDe: Map<number, SugestaoTitulo>,
+  tituloUsado: Set<string>,
+): Map<number, SugestaoPdv> {
+  const pdvDe = new Map<number, SugestaoPdv>()
+  const livres = abertos.filter((a) => !tituloUsado.has(a.t.id))
+  if (livres.length === 0) return pdvDe
+  const parte = (a: AbertoPdv, valor: number, falta = a.falta) => ({
+    tituloId: a.t.id,
+    valor,
+    falta,
+    vencimento: a.t.vencimento,
+    dia: a.t.emissao || a.t.vencimento,
+  })
+  // Em ordem de data (no mesmo dia, a do arquivo): no Pix, cada crédito desconta do que falta.
+  const ordem = base
+    .map((_, i) => i)
+    .filter((i) => {
+      const b = base[i]
+      return b.direcao === 'entrada' && b.tr.valor > 0 && !b.jaImportada && !tituloDe.has(i) && !outros[i].duplicataDe && !outros[i].pareceTransferencia
+    })
+    .sort((x, y) => base[x].tr.data.localeCompare(base[y].tr.data) || x - y)
+  const ehPix = (i: number) => /\bPIX\b/.test(outros[i].n)
+
+  // Cartão (débito/crédito): um crédito por dia, perto do que falta (R$ 0,50 ou 1%), de 2 dias antes a 5 depois.
+  const cartoes = livres.filter((a) => a.forma === 'debito' || a.forma === 'credito')
+  const pares: { i: number; a: AbertoPdv; dif: number; dias: number }[] = []
+  for (const i of ordem) {
+    if (ehPix(i)) continue
+    const v = cent(base[i].tr.valor)
+    for (const a of cartoes) {
+      const dias = diasEntre(base[i].tr.data, a.t.vencimento)
+      if (dias < -2 || dias > 5) continue
+      const dif = v - cent(a.falta)
+      if (Math.abs(dif) > Math.round(folgaPdv(a.forma, a.falta) * 100)) continue
+      pares.push({ i, a, dif, dias })
+    }
+  }
+  pares.sort((x, y) => Math.abs(x.dif) - Math.abs(y.dif) || Math.abs(x.dias) - Math.abs(y.dias) || x.i - y.i)
+  for (const { i, a, dif, dias } of pares) {
+    if (pdvDe.has(i) || tituloUsado.has(a.t.id)) continue
+    tituloDe.set(i, { tituloId: a.t.id, confianca: 'media', dias, falta: a.falta, pontos: 0 })
+    tituloUsado.add(a.t.id)
+    pdvDe.set(i, {
+      tipo: 'aproximado',
+      forma: a.forma,
+      confianca: 'media',
+      titulos: [parte(a, cent(base[i].tr.valor) / 100)],
+      diferenca: dif / 100,
+      restante: -dif / 100,
+    })
+  }
+
+  // iFood: o repasse da semana = soma do que falta em 2 a 10 contas seguidas (por vencimento), ± R$ 0,05.
+  const ifood = livres
+    .filter((a) => a.forma === 'ifood' && !tituloUsado.has(a.t.id))
+    .sort((x, y) => x.t.vencimento.localeCompare(y.t.vencimento) || x.t.id.localeCompare(y.t.id))
+  for (const i of ordem) {
+    if (pdvDe.has(i) || ehPix(i) || ifood.length < 2) continue
+    const { tr } = base[i]
+    const v = cent(tr.valor)
+    let melhor: { s: number; k: number; soma: number } | null = null
+    for (let s = 0; s < ifood.length; s++) {
+      if (diasEntre(tr.data, ifood[s].t.vencimento) < -7) break // as próximas vencem ainda mais tarde
+      let soma = 0
+      for (let k = s; k < ifood.length && k < s + 10; k++) {
+        soma += cent(ifood[k].falta)
+        if (soma > v + 5) break
+        if (k === s || Math.abs(soma - v) > 5) continue
+        if (diasEntre(tr.data, ifood[k].t.vencimento) > 10) continue
+        if (cent(ifood[k].falta) + v - soma <= 0) continue // a última fica com a diferença
+        if (!melhor || Math.abs(soma - v) < Math.abs(melhor.soma - v)) melhor = { s, k, soma }
+      }
+    }
+    if (!melhor) continue
+    const { s, k, soma } = melhor
+    const grupo = ifood.splice(s, k - s + 1)
+    for (const a of grupo) tituloUsado.add(a.t.id)
+    pdvDe.set(i, {
+      tipo: 'soma',
+      forma: 'ifood',
+      // Sem "iFood" no texto, só sugere (não marca sozinho): pode ser outro crédito com a mesma soma.
+      confianca: /\bIFOOD\b|\bIFD\b/.test(outros[i].n) ? 'media' : 'baixa',
+      titulos: grupo.map((a, j) => parte(a, j === grupo.length - 1 ? (cent(a.falta) + v - soma) / 100 : a.falta)),
+      diferenca: (v - soma) / 100,
+      restante: 0,
+    })
+  }
+
+  // Pix: um crédito por cliente; cada um baixa parte da conta do dia (de 1 dia antes a 3 depois do
+  // vencimento), sem passar do que ainda falta nela depois das linhas anteriores.
+  const pix = livres.filter((a) => a.forma === 'pix' && !tituloUsado.has(a.t.id)).map((a) => ({ a, resto: cent(a.falta) }))
+  for (const i of ordem) {
+    if (pdvDe.has(i) || !ehPix(i)) continue
+    const { tr } = base[i]
+    const v = cent(tr.valor)
+    let melhor: (typeof pix)[number] | null = null
+    let melhorDias = 0
+    for (const p of pix) {
+      if (p.resto < v) continue
+      const dias = diasEntre(tr.data, p.a.t.vencimento)
+      if (dias < -1 || dias > 3) continue
+      // o dia mais perto; empatado, o dia anterior (Pix da noite que cai no dia seguinte)
+      if (!melhor || Math.abs(dias) < Math.abs(melhorDias) || (Math.abs(dias) === Math.abs(melhorDias) && dias > melhorDias)) {
+        melhor = p
+        melhorDias = dias
+      }
+    }
+    if (!melhor) continue
+    const antes = melhor.resto
+    melhor.resto -= v
+    tituloDe.set(i, { tituloId: melhor.a.t.id, confianca: 'media', dias: melhorDias, falta: antes / 100, pontos: 0 })
+    pdvDe.set(i, {
+      tipo: 'parcial',
+      forma: 'pix',
+      confianca: 'media',
+      titulos: [parte(melhor.a, v / 100, antes / 100)],
+      diferenca: (v - antes) / 100,
+      restante: melhor.resto / 100,
+    })
+  }
+  for (const p of pix) if (p.resto < cent(p.a.falta)) tituloUsado.add(p.a.t.id)
+  return pdvDe
 }
 
 interface EntradaHistorico {
@@ -483,10 +683,15 @@ export interface LinhaConfirmada {
   tituloId: string | null
   /** Quando é transferência: a outra conta (destino se saiu, origem se entrou). */
   contaTransferenciaId?: string | null
+  /**
+   * Repasse que baixa várias contas do PDV (iFood): um lançamento por conta, cada um com o seu
+   * valor; o último fica com a diferença de centavos, para a soma bater com o banco. Ignora tituloId.
+   */
+  titulosPdv?: { tituloId: string; valor: number }[] | null
 }
 
 export function paraLancamentos(linhas: LinhaConfirmada[], contaId: string, opcoes: { cartaoCredito?: boolean } = {}): DadosLancamento[] {
-  return linhas.map((l) => {
+  return linhas.flatMap((l): DadosLancamento[] => {
     const t = l.transacao
     const saiu = t.valor < 0
     const comum = {
@@ -500,26 +705,41 @@ export function paraLancamentos(linhas: LinhaConfirmada[], contaId: string, opco
       ofx_conta_id: contaId,
       observacao: null,
     }
+    const forma_pagamento = l.formaPagamento !== undefined ? l.formaPagamento : adivinharForma(t, opcoes.cartaoCredito)
     const outra = l.contaTransferenciaId && l.contaTransferenciaId !== contaId ? l.contaTransferenciaId : null
     if (outra) {
-      return {
-        ...comum,
-        tipo: 'transferencia',
-        conta_id: saiu ? contaId : outra,
-        conta_destino_id: saiu ? outra : contaId,
-        categoria_id: null,
-        titulo_id: null,
-        forma_pagamento: l.formaPagamento !== undefined ? l.formaPagamento : adivinharForma(t, opcoes.cartaoCredito),
-      }
+      return [
+        {
+          ...comum,
+          tipo: 'transferencia',
+          conta_id: saiu ? contaId : outra,
+          conta_destino_id: saiu ? outra : contaId,
+          categoria_id: null,
+          titulo_id: null,
+          forma_pagamento,
+        },
+      ]
     }
-    return {
+    const normal: DadosLancamento = {
       ...comum,
       tipo: saiu ? 'saida' : 'entrada',
       conta_id: contaId,
       conta_destino_id: null,
       categoria_id: l.categoriaId,
       titulo_id: l.tituloId,
-      forma_pagamento: l.formaPagamento !== undefined ? l.formaPagamento : adivinharForma(t, opcoes.cartaoCredito),
+      forma_pagamento,
     }
+    const partes = l.titulosPdv ?? []
+    if (partes.length === 0) return [normal]
+    // Um lançamento por conta: o primeiro fica com o FITID do banco (é por ele que uma nova
+    // importação reconhece a transação), os outros com FITID#2, FITID#3… (o índice único é por FITID).
+    const total = cent(t.valor)
+    let usado = 0
+    return partes.map((p, k) => {
+      const valor = k === partes.length - 1 ? total - usado : cent(p.valor)
+      usado += valor
+      if (valor <= 0) throw new Error('A soma das contas do repasse não bate com o valor do extrato. Confira a linha e tente de novo.')
+      return { ...normal, valor: valor / 100, titulo_id: p.tituloId, ofx_fitid: k === 0 ? t.fitid : `${t.fitid}#${k + 1}` }
+    })
   })
 }
