@@ -1,8 +1,24 @@
-import { AlertTriangle, Calculator, ChefHat, ChevronRight, CloudOff, CookingPot, Gift, ListPlus, Package, ShoppingCart, Store, type LucideIcon } from 'lucide-react'
+import {
+  AlertTriangle,
+  Calculator,
+  ChefHat,
+  ChevronRight,
+  ClipboardPen,
+  CloudOff,
+  CookingPot,
+  Gift,
+  ListPlus,
+  Package,
+  ShoppingCart,
+  Store,
+  type LucideIcon,
+} from 'lucide-react'
 import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { Cartao } from '../../components/ui'
 import { precisaComprar } from '../../lib/estoque'
+import { somarDias } from '../../lib/financeiro'
+import { dataCurta, ordenarAgenda } from '../../lib/pedidos'
 import { centavos } from '../../lib/compras'
 import { moeda } from '../../lib/format'
 import { modoLocal } from '../../lib/supabase'
@@ -10,6 +26,7 @@ import { useCompras } from '../compras/api'
 import { useSaldos } from '../estoque/api'
 import { hoje as dataDeHoje } from '../financeiro/api'
 import { useInsumos } from '../insumos/api'
+import { usePedidos } from '../pedidos/api'
 import { useProdutos } from '../produtos/api'
 import { useReceitas } from '../receitas/api'
 import { useVendasDoDia } from '../vendas/api'
@@ -37,6 +54,23 @@ export default function InicioPage() {
     const feitas = (vendasHoje.data ?? []).filter((v) => v.status !== 'cancelada')
     return { qtd: feitas.length, total: centavos(feitas.reduce((s, v) => s + v.total, 0)) }
   }, [vendasHoje.data])
+
+  const pedidos = usePedidos()
+  const agenda = useMemo(() => {
+    const dia = dataDeHoje()
+    const amanha = somarDias(dia, 1)
+    const abertos = ordenarAgenda(pedidos.data ?? [])
+    return {
+      abertos: abertos.length,
+      atrasados: abertos.filter((p) => p.entrega_data < dia).length,
+      hoje: abertos.filter((p) => p.entrega_data === dia).length,
+      amanha: abertos.filter((p) => p.entrega_data === amanha).length,
+      // O próximo a entregar (os atrasados já aparecem em destaque).
+      proximo: abertos.find((p) => p.entrega_data >= dia),
+      dia,
+      amanhaData: amanha,
+    }
+  }, [pedidos.data])
 
   const insumos = useInsumos()
   const qtdInsumos = insumos.data?.filter((i) => i.ativo !== false).length
@@ -124,6 +158,52 @@ export default function InicioPage() {
         </span>
         <ChevronRight className="size-6 shrink-0" aria-hidden />
       </Link>
+
+      {agenda.abertos > 0 ? (
+        <Link
+          to="/vendas/pedidos"
+          className={`flex min-h-14 items-center gap-3 rounded-2xl border px-4 py-3 shadow-sm active:bg-marca-clara ${
+            agenda.atrasados > 0 ? 'border-perigo/30 bg-superficie' : 'border-borda bg-superficie'
+          }`}
+        >
+          <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-marca-clara text-marca">
+            <ClipboardPen className="size-5" aria-hidden />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block font-semibold">
+              Pedidos <span className="font-normal text-suave">· hoje {agenda.hoje} · amanhã {agenda.amanha}</span>
+            </span>
+            {agenda.atrasados > 0 && (
+              <span className="mt-0.5 flex items-center gap-1 text-sm font-semibold text-perigo">
+                <AlertTriangle className="size-4 shrink-0" aria-hidden />
+                {agenda.atrasados} {agenda.atrasados === 1 ? 'atrasado' : 'atrasados'}
+              </span>
+            )}
+            {agenda.proximo && (
+              <span className="block truncate text-sm text-suave">
+                Próximo: {agenda.proximo.cliente_nome} ·{' '}
+                {agenda.proximo.entrega_data === agenda.dia
+                  ? 'hoje'
+                  : agenda.proximo.entrega_data === agenda.amanhaData
+                    ? 'amanhã'
+                    : dataCurta(agenda.proximo.entrega_data)}
+                {agenda.proximo.entrega_hora && ` às ${agenda.proximo.entrega_hora.slice(0, 5)}`}
+              </span>
+            )}
+          </span>
+          <ChevronRight className="size-5 shrink-0 text-suave" aria-hidden />
+        </Link>
+      ) : (
+        pedidos.isSuccess && (
+          <Link
+            to="/vendas/pedidos/novo"
+            className="-my-2 inline-flex min-h-12 items-center gap-2 self-start rounded-xl px-2 font-semibold text-marca active:bg-marca-clara"
+          >
+            <ClipboardPen className="size-5" aria-hidden />
+            Anotar um pedido
+          </Link>
+        )
+      )}
 
       {compraAberta ? (
         <Link

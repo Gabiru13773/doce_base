@@ -11,11 +11,13 @@ import {
   History,
   ListPlus,
   ClipboardList,
+  ClipboardPen,
   LockKeyhole,
   Settings2,
   ShoppingCart,
   Store,
   Tags,
+  Users,
   Wallet,
   type LucideIcon,
 } from 'lucide-react'
@@ -24,7 +26,7 @@ import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
 import { Carregando, MenuOculto } from './ui'
 
 // Quatro áreas no mesmo app: Produção (cozinha), Vendas (balcão), Compras (mercado) e Financeiro.
-// Cada uma tem o seu menu de no máximo 5 itens.
+// Cada uma tem o seu menu; no celular, no máximo 5 itens (no computador o lateral pode ter mais).
 
 interface ItemMenu {
   para: string
@@ -71,8 +73,17 @@ const MENU_COMPRAS: ItemMenu[] = [
 ]
 
 // Vendas: a tela de vender serve no celular e no tablet/computador do balcão.
+// No celular, Ajustes sai do menu (abre pelo Caixa) para caberem Pedidos e Clientes.
 const MENU_VENDAS: ItemMenu[] = [
   { para: '/vendas', rotulo: 'Vender', icone: Store },
+  { para: '/vendas/pedidos', rotulo: 'Pedidos', icone: ClipboardPen },
+  { para: '/vendas/clientes', rotulo: 'Clientes', icone: Users },
+  { para: '/vendas/dia', rotulo: 'Do dia', icone: ClipboardList },
+  { para: '/vendas/caixa', rotulo: 'Caixa', icone: LockKeyhole, tambem: ['/vendas/ajustes'] },
+]
+
+const MENU_VENDAS_LATERAL: ItemMenu[] = [
+  ...MENU_VENDAS.slice(0, 3),
   { para: '/vendas/dia', rotulo: 'Vendas do dia', icone: ClipboardList },
   { para: '/vendas/caixa', rotulo: 'Fechar caixa', icone: LockKeyhole },
   { para: '/vendas/ajustes', rotulo: 'Ajustes', icone: Settings2 },
@@ -82,7 +93,7 @@ type Area = 'producao' | 'vendas' | 'compras' | 'financeiro'
 
 const MENUS: Record<Area, { celular: ItemMenu[]; lateral: ItemMenu[] }> = {
   producao: { celular: MENU_PRODUCAO, lateral: MENU_PRODUCAO_LATERAL },
-  vendas: { celular: MENU_VENDAS, lateral: MENU_VENDAS },
+  vendas: { celular: MENU_VENDAS, lateral: MENU_VENDAS_LATERAL },
   compras: { celular: MENU_COMPRAS, lateral: MENU_COMPRAS },
   financeiro: { celular: MENU_FINANCEIRO, lateral: MENU_FINANCEIRO },
 }

@@ -13,7 +13,7 @@ import { mensagemDe } from '../financeiro/util'
 import { useConfigPdv, useSalvarConfigPdv } from './api'
 
 // Ajustes do PDV (/vendas/ajustes): taxas da maquininha e do iFood, prazos de recebimento,
-// contas onde o dinheiro entra e o fundo de troco da gaveta.
+// contas onde o dinheiro entra, o fundo de troco da gaveta e o sinal sugerido dos pedidos.
 
 const PRECO_EXEMPLO = 10
 const NOVA_CONTA = '/financeiro/bancos/nova'
@@ -52,8 +52,9 @@ type CampoNum =
   | 'prazo_credito'
   | 'prazo_ifood'
   | 'fundo_troco'
+  | 'pct_sinal'
 
-const PCTS = ['taxa_debito', 'taxa_credito', 'taxa_pix', 'comissao_ifood', 'acrescimo_ifood'] as const
+const PCTS = ['taxa_debito', 'taxa_credito', 'taxa_pix', 'comissao_ifood', 'acrescimo_ifood', 'pct_sinal'] as const
 const PRAZOS = ['prazo_debito', 'prazo_credito', 'prazo_ifood'] as const
 
 function erroPct(t: string): string | undefined {
@@ -99,6 +100,7 @@ function Formulario({ inicial, contas }: { inicial: ConfigPdv; contas: ContaFin[
     prazo_credito: paraCampo(inicial.prazo_credito),
     prazo_ifood: paraCampo(inicial.prazo_ifood),
     fundo_troco: inicial.fundo_troco > 0 ? paraCampo(inicial.fundo_troco) : '',
+    pct_sinal: paraCampo(inicial.pct_sinal),
   }))
   const [contaCaixa, setContaCaixa] = useState<string | null>(() => contaCaixaPadrao(inicial, contas))
   const [contaBanco, setContaBanco] = useState<string | null>(inicial.conta_banco_id)
@@ -143,6 +145,7 @@ function Formulario({ inicial, contas }: { inicial: ConfigPdv; contas: ContaFin[
         conta_caixa_id: contaCaixa,
         conta_banco_id: contaBanco,
         fundo_troco: campos.fundo_troco.trim() ? centavos(lerNumero(campos.fundo_troco)) : 0,
+        pct_sinal: p('pct_sinal'),
       })
       avisar({ texto: 'Ajustes do PDV salvos ✓' })
     } catch {
@@ -250,6 +253,18 @@ function Formulario({ inicial, contas }: { inicial: ConfigPdv; contas: ContaFin[
           onChange={mudar('fundo_troco')}
           erro={mostrar.fundo_troco}
           ajuda="O troco que já está no caixa quando o dia começa. Entra na conta do dinheiro esperado no fechamento."
+        />
+      </Secao>
+
+      <Secao titulo="Pedidos">
+        <EntradaNumero
+          rotulo="Sinal dos pedidos"
+          sufixo="%"
+          placeholder="Ex.: 50"
+          value={campos.pct_sinal}
+          onChange={mudar('pct_sinal')}
+          erro={mostrar.pct_sinal}
+          ajuda="Quanto do total pedir de sinal ao anotar uma encomenda (dá para mudar em cada pedido). Use 0 para não sugerir sinal."
         />
       </Secao>
 

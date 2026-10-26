@@ -1,4 +1,4 @@
-import { AlertTriangle, Banknote, Landmark } from 'lucide-react'
+import { AlertTriangle, Banknote, Landmark, Settings2 } from 'lucide-react'
 import { useMemo, useState, type FormEvent, type ReactNode } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useAviso } from '../../components/Aviso'
@@ -19,6 +19,8 @@ import { rotuloForma } from './componentes/ListaVendas'
 
 // Fechamento do caixa do dia: confere a gaveta e manda os totais para o Financeiro
 // (dinheiro entra no caixa; Pix, cartão e iFood viram contas a receber pelo valor líquido).
+// Os pagamentos de pedidos (sinal, restante) são vendas como as outras e entram aqui no dia em que
+// foram recebidos.
 
 const DATA_OK = /^\d{4}-\d{2}-\d{2}$/
 
@@ -76,6 +78,14 @@ export default function FecharCaixaPage() {
       <div className="flex flex-col gap-8 pb-24">
         {corpo}
         <FechamentosRecentes fechamentos={fechamentos.data ?? []} hoje={hoje} atual={data} />
+        {/* No celular os Ajustes não estão no menu: ficam aqui, à mão de quem fecha o caixa. */}
+        <Link
+          to="/vendas/ajustes"
+          className="inline-flex min-h-12 items-center gap-2 self-start rounded-xl px-2 font-semibold text-suave active:bg-marca-clara"
+        >
+          <Settings2 className="size-5" aria-hidden />
+          Ajustes do PDV
+        </Link>
       </div>
     </>
   )

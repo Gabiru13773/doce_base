@@ -2,16 +2,20 @@ import { ChevronRight, CookingPot, Plus } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Carregando, Erro, TituloPagina, Vazio } from '../../components/ui'
-import { moeda } from '../../lib/format'
+import { somarDias } from '../../lib/financeiro'
+import { moeda, numero } from '../../lib/format'
+import { paraProduzir as paraOsPedidos } from '../../lib/pedidos'
 import type { Contexto } from '../../lib/receitas'
 import { useProducoes, useSaldos, type Producao } from '../estoque/api'
 import { hoje } from '../financeiro/api'
 import { dataBr, mensagemDe } from '../financeiro/util'
+import { usePedidos } from '../pedidos/api'
 import { useContextoCalculo } from '../receitas/api'
 import { DetalhesProducao } from './componentes/DetalhesProducao'
 import { rotuloDia, textoLotes, textoPreparado } from './componentes/formato'
 
-// Tela "Produzir": registrar o que foi feito, ver as últimas produções e o que está acabando.
+// Tela "Produzir": registrar o que foi feito, ver as últimas produções, o que está acabando e o que
+// fazer para os pedidos que saem até amanhã.
 
 const botaoPrincipal =
   'flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl bg-marca px-5 text-lg font-semibold text-white shadow-sm active:bg-marca-escura'
@@ -20,6 +24,7 @@ export default function ProducaoPage() {
   const producoes = useProducoes()
   const calc = useContextoCalculo()
   const saldos = useSaldos()
+  const pedidos = usePedidos()
   const [aberta, setAberta] = useState<Producao | null>(null)
 
   const dia = hoje()
@@ -44,6 +49,9 @@ export default function ProducaoPage() {
       .map((r) => ({ receita: r, saldo: prontos[r.id] ?? 0, minimo: r.estoque_minimo as number }))
   }, [calc.receitasAtivas, saldos.data])
 
+  // Pedidos confirmados (ainda não prontos) com entrega até amanhã, inclusive os atrasados.
+  const doPedidos = useMemo(() => paraOsPedidos(pedidos.data ?? [], somarDias(dia, 1)), [pedidos.data, dia])
+
   const carregando = producoes.isPending || calc.carregando
   const erro = producoes.error ?? calc.erro
 
@@ -55,6 +63,33 @@ export default function ProducaoPage() {
         <Plus className="size-6" aria-hidden />
         Registrar produção
       </Link>
+
+      {doPedidos.length > 0 && (
+        <section className="mt-6 flex flex-col gap-2" aria-labelledby="para-pedidos">
+          <h2 id="para-pedidos" className="text-lg font-bold">
+            Para os pedidos
+          </h2>
+          <p className="text-sm text-suave">O que falta fazer para os pedidos de hoje e amanhã.</p>
+          <ul className="divide-y divide-borda overflow-hidden rounded-2xl border border-borda bg-superficie">
+            {doPedidos.map((l) => (
+              <li key={l.chave} className="flex items-center gap-3 px-4 py-2">
+                <div className="min-w-0 flex-1">
+                  <p className="break-words font-semibold">{l.nome}</p>
+                  <p className="text-sm text-suave">{l.pedidos === 1 ? '1 pedido' : `${l.pedidos} pedidos`}</p>
+                </div>
+                <span className="shrink-0 text-lg font-bold">× {numero(l.qtd, 3)}</span>
+              </li>
+            ))}
+          </ul>
+          <Link
+            to="/vendas/pedidos"
+            className="inline-flex min-h-12 items-center gap-1 self-start rounded-xl px-2 font-semibold text-marca active:bg-marca-clara"
+          >
+            Ver pedidos
+            <ChevronRight className="size-5" aria-hidden />
+          </Link>
+        </section>
+      )}
 
       {paraProduzir.length > 0 && (
         <section className="mt-6 flex flex-col gap-2" aria-labelledby="para-produzir">

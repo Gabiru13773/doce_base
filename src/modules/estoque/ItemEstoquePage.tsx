@@ -173,13 +173,15 @@ function Detalhe({ item, movimentos }: { item: ItemEstoque; movimentos: Moviment
 }
 
 function LinhaMovimento({ m, item, aoApagar, apagando }: { m: Movimento; item: ItemEstoque; aoApagar: () => void; apagando: boolean }) {
-  // Baixa de uma venda do PDV: sai do estoque junto com a venda (cancelando a venda, ela volta).
-  const manual = !m.producao_id && !m.compra_id && !m.venda_id
+  // Baixa de uma venda do PDV ou da entrega de um pedido: sai do estoque junto com elas (cancelando
+  // a venda ou desfazendo a entrega, ela volta). Por isso não se apaga aqui.
+  const manual = !m.producao_id && !m.compra_id && !m.venda_id && !m.pedido_id
+  const rotulo = m.pedido_id ? 'Pedido entregue' : ROTULO_ORIGEM[m.origem]
   return (
     <li className="flex items-start gap-3 px-4 py-3">
       <div className="min-w-0 flex-1">
         <p className="font-semibold">
-          {ROTULO_ORIGEM[m.origem]} <span className="font-normal text-suave">· {dataBr(m.data)}</span>
+          {rotulo} <span className="font-normal text-suave">· {dataBr(m.data)}</span>
         </p>
         {m.observacao && <p className="break-words text-suave">{m.observacao}</p>}
         {m.feito_por && <p className="text-sm text-suave">por {m.feito_por}</p>}
@@ -191,6 +193,11 @@ function LinhaMovimento({ m, item, aoApagar, apagando }: { m: Movimento; item: I
         {m.compra_id && (
           <Link to={`/compras/${m.compra_id}`} className="inline-flex min-h-11 items-center font-semibold text-marca underline">
             ver compra
+          </Link>
+        )}
+        {m.pedido_id && (
+          <Link to={`/vendas/pedidos/${m.pedido_id}`} className="inline-flex min-h-11 items-center font-semibold text-marca underline">
+            ver pedido
           </Link>
         )}
         {m.venda_id && (
@@ -205,7 +212,7 @@ function LinhaMovimento({ m, item, aoApagar, apagando }: { m: Movimento; item: I
           type="button"
           onClick={aoApagar}
           disabled={apagando}
-          aria-label={`Apagar ${ROTULO_ORIGEM[m.origem].toLowerCase()} de ${dataBr(m.data)}`}
+          aria-label={`Apagar ${rotulo.toLowerCase()} de ${dataBr(m.data)}`}
           className="-my-1 -mr-2 flex size-12 shrink-0 items-center justify-center rounded-xl text-suave active:bg-perigo-claro active:text-perigo disabled:opacity-50"
         >
           <Trash2 className="size-5" aria-hidden />

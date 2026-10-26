@@ -37,6 +37,8 @@ export interface Venda {
   status: 'concluida' | 'cancelada'
   motivo_cancelamento: string | null
   fechamento_id: string | null
+  /** pagamento (sinal ou restante) de um pedido; ver src/modules/pedidos/api.ts */
+  pedido_id?: string | null
   feito_por: string | null
   observacao: string | null
   criado_em: string
@@ -62,6 +64,7 @@ export interface Fechamento {
 const CHAVES = {
   vendas: ['vendas'],
   doDia: (data: string) => ['vendas', 'dia', data],
+  doPedido: (pedidoId: string) => ['vendas', 'pedido', pedidoId],
   config: ['pdv_config'],
   fechamentos: ['vendas', 'fechamentos'],
 }
@@ -79,6 +82,7 @@ function normalizarVenda(v: Venda): Venda {
     troco: Number(v.troco ?? 0),
     taxas: Number(v.taxas ?? 0),
     fechamento_id: v.fechamento_id ?? null,
+    pedido_id: v.pedido_id ?? null,
   }
 }
 
@@ -110,6 +114,7 @@ export function useConfigPdv() {
         conta_caixa_id: l.conta_caixa_id ?? null,
         conta_banco_id: l.conta_banco_id ?? null,
         fundo_troco: Number(l.fundo_troco ?? 0),
+        pct_sinal: l.pct_sinal == null ? CONFIG_PDV_PADRAO.pct_sinal : Number(l.pct_sinal),
       }
     },
   })
@@ -210,6 +215,11 @@ function criarFila() {
         tirar(id)
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e)
+        if (etapa === 'venda' && p.venda.pedido_id && /não existe mais|ligado a um registro/i.test(msg)) {
+          // O pedido foi apagado em outro aparelho, mas o dinheiro entrou: guarda a venda sem o pedido.
+          trocar(new Map(pendentes).set(id, { ...p, venda: { ...p.venda, pedido_id: null } }))
+          continue
+        }
         if (!ERRO_DEFINITIVO.test(msg)) {
           ultimoErro = msg
           break
@@ -294,7 +304,11 @@ function useLigarFila() {
     () =>
       fila.definirAoEnviar((data) =>
         // a baixa no estoque também acabou de subir ("restam N" na tela de vender)
-        Promise.all([qc.invalidateQueries({ queryKey: CHAVES.doDia(data) }), qc.invalidateQueries({ queryKey: ['estoque'] })]),
+        Promise.all([
+          qc.invalidateQueries({ queryKey: CHAVES.doDia(data) }),
+          qc.invalidateQueries({ queryKey: ['vendas', 'pedido'] }),
+          qc.invalidateQueries({ queryKey: ['estoque'] }),
+        ]),
       ),
     [qc],
   )
@@ -379,6 +393,32 @@ export function useVendasDoDia(data: string) {
   return { ...consulta, data: vendas }
 }
 
+/**
+ * Pagamentos de um pedido (vendas com pedido_id), com os deste aparelho que ainda não subiram;
+ * os mais antigos primeiro.
+ */
+export function useVendasDoPedido(pedidoId: string | undefined) {
+  useLigarFila()
+  const consulta = useQuery({
+    queryKey: CHAVES.doPedido(pedidoId ?? ''),
+    queryFn: async () => (await db.listar<Venda>('vendas', { pedido_id: pedidoId! })).map(normalizarVenda),
+    enabled: !!pedidoId,
+  })
+  const pendentes = useSyncExternalStore(fila.assinar, fila.retrato)
+  const vendas = useMemo(() => {
+    if (!pedidoId) return undefined
+    const locais = [...pendentes.values()].filter((p) => p.venda.pedido_id === pedidoId)
+    if (!consulta.data && locais.length === 0) return undefined
+    const daNuvem = consulta.data ?? []
+    const ids = new Set(daNuvem.map((v) => v.id))
+    const soLocais = locais
+      .filter((p) => !ids.has(p.venda.id))
+      .map((p) => ({ ...normalizarVenda({ ...p.venda, atualizado_em: p.venda.criado_em } as Venda), pendente: true }))
+    return [...daNuvem, ...soLocais].sort((a, b) => a.criado_em.localeCompare(b.criado_em))
+  }, [consulta.data, pendentes, pedidoId])
+  return { ...consulta, data: vendas }
+}
+
 /** Cancela uma venda (ela continua registrada, com o motivo) e devolve o que saiu do estoque. */
 export function useCancelarVenda() {
   const qc = useQueryClient()
@@ -405,6 +445,7 @@ export function useCancelarVenda() {
     },
     onSettled: (_r, _e, { venda }) => {
       qc.invalidateQueries({ queryKey: CHAVES.doDia(venda.data) })
+      if (venda.pedido_id) qc.invalidateQueries({ queryKey: CHAVES.doPedido(venda.pedido_id) })
       qc.invalidateQueries({ queryKey: ['estoque'] })
     },
   })

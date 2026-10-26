@@ -18,6 +18,8 @@ export interface Movimento {
   producao_id: string | null
   /** venda do PDV que deu esta baixa */
   venda_id?: string | null
+  /** pedido entregue que deu esta baixa */
+  pedido_id?: string | null
   compra_id: string | null
   observacao: string | null
   feito_por: string | null

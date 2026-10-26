@@ -32,6 +32,11 @@ export function EtiquetaCanal({ canal }: { canal: Canal }) {
   return <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${COR_CANAL[canal]}`}>{rotuloCanal(canal)}</span>
 }
 
+/** Venda que é pagamento de um pedido (sinal ou restante). */
+export function EtiquetaPedido() {
+  return <span className="rounded-full bg-laranja-clara px-2 py-0.5 text-xs font-semibold text-tinta">Pedido</span>
+}
+
 /** ◀ Hoje ▶ e o campo de data. */
 export function SeletorDia({ data, hoje, aoMudar }: { data: string; hoje: string; aoMudar: (d: string) => void }) {
   const id = useId()
@@ -92,6 +97,7 @@ function LinhaVenda({ venda: v, aoAbrir }: { venda: Venda; aoAbrir: () => void }
         <span className={`block font-semibold ${cancelada ? 'line-through' : ''}`}>{resumoItens(v.itens) || 'Venda'}</span>
         <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-suave">
           <EtiquetaCanal canal={v.canal} />
+          {v.pedido_id && <EtiquetaPedido />}
           <span>{v.pagamentos.map((p) => rotuloForma(p.forma)).join(' + ')}</span>
           {v.feito_por && <span>· {v.feito_por}</span>}
           {v.pendente && <span className="rounded-full bg-alerta-claro px-2 text-alerta">por enviar</span>}

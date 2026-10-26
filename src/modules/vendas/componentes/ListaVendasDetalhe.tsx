@@ -6,7 +6,7 @@ import { moeda, numero } from '../../../lib/format'
 import { Fichas, Folha } from '../../compras/componentes/Folha'
 import { dataBr, mensagemDe } from '../../financeiro/util'
 import { useCancelarVenda, type Venda } from '../api'
-import { EtiquetaCanal, hora, rotuloForma } from './ListaVendas'
+import { EtiquetaCanal, EtiquetaPedido, hora, rotuloForma } from './ListaVendas'
 
 // Detalhes de uma venda, com o Cancelar venda (só enquanto o caixa do dia está aberto).
 
@@ -61,8 +61,18 @@ export function DetalheVenda({ venda: v, aoFechar }: { venda: Venda; aoFechar: (
     >
       <div className="flex flex-wrap items-center gap-2">
         <EtiquetaCanal canal={v.canal} />
+        {v.pedido_id && <EtiquetaPedido />}
         {v.cliente && <span className="text-suave">Cliente: {v.cliente}</span>}
       </div>
+
+      {v.pedido_id && (
+        <Link
+          to={`/vendas/pedidos/${v.pedido_id}`}
+          className="inline-flex min-h-12 items-center self-start rounded-xl px-2 font-semibold text-marca underline active:bg-marca-clara"
+        >
+          Ver pedido
+        </Link>
+      )}
 
       {cancelada && (
         <p className="rounded-2xl bg-perigo-claro px-4 py-3 text-perigo">
@@ -141,7 +151,11 @@ export function DetalheVenda({ venda: v, aoFechar }: { venda: Venda; aoFechar: (
             />
           )}
           {tentou && !motivo && <p className="text-sm font-medium text-perigo">Escolha o motivo</p>}
-          <p className="text-sm text-suave">A venda continua na lista, riscada, e o que saiu do estoque volta.</p>
+          <p className="text-sm text-suave">
+            {v.pedido_id
+              ? 'A venda continua na lista, riscada, e este pagamento deixa de contar no pedido.'
+              : 'A venda continua na lista, riscada, e o que saiu do estoque volta.'}
+          </p>
           {cancelar.isError && <Erro mensagem={mensagemDe(cancelar.error)} />}
         </section>
       )}

@@ -57,6 +57,8 @@ export interface ConfigPdv {
   conta_caixa_id: string | null
   conta_banco_id: string | null
   fundo_troco: number
+  /** sinal sugerido nos pedidos, em % do total */
+  pct_sinal: number
 }
 
 export const CONFIG_PDV_PADRAO: ConfigPdv = {
@@ -71,6 +73,7 @@ export const CONFIG_PDV_PADRAO: ConfigPdv = {
   conta_caixa_id: null,
   conta_banco_id: null,
   fundo_troco: 0,
+  pct_sinal: 50,
 }
 
 /**
