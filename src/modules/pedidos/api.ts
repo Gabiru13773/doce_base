@@ -320,7 +320,11 @@ export function useApagarPedido() {
       const naNuvem = await db.listar<Venda>('vendas', { pedido_id: pedido.id })
       if ([...naNuvem, ...pagamentos].some((v) => v.status === 'concluida'))
         throw new Error('Este pedido já recebeu pagamento. Cancele o pedido em vez de apagar.')
-      if (modoLocal) for (const m of await db.listar<Movimento>('estoque_movimentos', { pedido_id: pedido.id })) await db.remover('estoque_movimentos', m.id)
+      // No Supabase o banco faz isso sozinho (on delete cascade / set null); no modo local fazemos igual.
+      if (modoLocal) {
+        for (const m of await db.listar<Movimento>('estoque_movimentos', { pedido_id: pedido.id })) await db.remover('estoque_movimentos', m.id)
+        for (const v of naNuvem) await db.atualizar<Venda>('vendas', v.id, { pedido_id: null })
+      }
       await db.remover('pedidos', pedido.id)
       for (const f of pedido.fotos) await apagarFoto(f).catch(() => {})
     },
