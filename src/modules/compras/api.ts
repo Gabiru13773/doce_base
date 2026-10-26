@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { log } from '../../lib/log'
 import { useEffect, useMemo, useSyncExternalStore } from 'react'
 import { milesimos } from '../../lib/estoque'
 import { centavos, mesclarPendentes, type ItemCompraCalc, type PrecoHistorico } from '../../lib/compras'
@@ -280,8 +281,13 @@ function criarFila() {
         let salvo = await db.atualizar<ItemCompra>('compra_itens', id, { ...camposMarcacao(p.item), atualizado_em: agora })
         // Item fora da lista que ainda não existe na nuvem: cria inteiro.
         if (!salvo && p.item.fora_da_lista) salvo = await db.salvar<ItemCompra>('compra_itens', { ...p.item, atualizado_em: agora } as ItemCompra)
-        if (!salvo) ultimoErro = `"${p.item.nome}" foi tirado da lista em outro aparelho; a marcação foi descartada.`
-        else ultimoErro = null
+        if (!salvo) {
+          ultimoErro = `"${p.item.nome}" foi tirado da lista em outro aparelho; a marcação foi descartada.`
+          log.warn('fila-compras', ultimoErro, { item: id })
+        } else {
+          ultimoErro = null
+          log.debug('fila-compras', 'Marcação enviada', { item: id, compra: p.item.compra_id })
+        }
         aoEnviar?.(p.item.compra_id, salvo)
         concluir(id, p.versao)
       } catch (e) {
@@ -290,9 +296,11 @@ function criarFila() {
         // Qualquer outro (internet, sessão, servidor fora do ar) fica na fila para a próxima tentativa.
         if (!ERRO_DEFINITIVO.test(msg)) {
           ultimoErro = msg
+          log.warn('fila-compras', `Envio adiado (${pendentes.size} na fila): ${msg}`)
           break
         }
         ultimoErro = `Uma marcação não foi salva (${p.item.nome}): ${msg}`
+        log.error('fila-compras', ultimoErro, { item: id })
         concluir(id, p.versao)
       }
     }

@@ -21,8 +21,10 @@ import {
   Wallet,
   type LucideIcon,
 } from 'lucide-react'
-import { Suspense } from 'react'
+import { Suspense, useEffect } from 'react'
+import { log } from '../lib/log'
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
+import { ProtecaoErro } from './ProtecaoErro'
 import { Carregando, MenuOculto } from './ui'
 
 // Quatro áreas no mesmo app: Produção (cozinha), Vendas (balcão), Compras (mercado) e Financeiro.
@@ -41,7 +43,7 @@ const MENU_PRODUCAO: ItemMenu[] = [
   { para: '/producao', rotulo: 'Produzir', icone: CookingPot },
   { para: '/receitas', rotulo: 'Receitas', icone: ChefHat },
   { para: '/estoque', rotulo: 'Estoque', icone: Package },
-  { para: '/mais', rotulo: 'Mais', icone: Menu, tambem: ['/produtos', '/insumos', '/config'] },
+  { para: '/mais', rotulo: 'Mais', icone: Menu, tambem: ['/produtos', '/insumos', '/config', '/diagnostico'] },
 ]
 
 // No computador sobra espaço: o menu lateral mostra também os Produtos (no celular ficam em "Mais").
@@ -121,8 +123,10 @@ function areaDe(pathname: string): Area {
 }
 
 export default function Layout() {
-  const { pathname } = useLocation()
+  const { pathname, search } = useLocation()
   const area = areaDe(pathname)
+  // cada tela aberta entra no registro (ajuda a saber o que a pessoa fez antes de um erro)
+  useEffect(() => log.info('tela', `Abriu ${pathname}${search}`), [pathname, search])
   const { celular: menu, lateral: menuLateral } = MENUS[area]
   const pdv = modoPdv(pathname)
   const mercado = modoMercado(pathname) || pdv
@@ -170,9 +174,11 @@ export default function Layout() {
               : `max-w-2xl md:pt-8 md:pb-28 ${mercado ? 'pt-[max(0.75rem,env(safe-area-inset-top))] pb-32' : 'pt-4 pb-44'}`
           }`}
         >
-          <Suspense fallback={<Carregando />}>
-            <Outlet />
-          </Suspense>
+          <ProtecaoErro chave={pathname}>
+            <Suspense fallback={<Carregando />}>
+              <Outlet />
+            </Suspense>
+          </ProtecaoErro>
         </main>
 
         {/* Menu inferior (celular) */}

@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { log } from '../../lib/log'
 import { useEffect, useMemo, useSyncExternalStore } from 'react'
 import { centavos } from '../../lib/compras'
 import { db } from '../../lib/db'
@@ -210,6 +211,7 @@ function criarFila() {
           )
         }
         ultimoErro = null
+        log.info('fila-vendas', `Venda enviada (${reais(p.venda.total)})`, { venda: id, pedido: p.venda.pedido_id ?? null })
         // Busca a lista de novo antes de tirar da fila (senão a venda some da tela por um instante).
         await aoEnviar?.(p.venda.data)?.catch(() => {})
         tirar(id)
@@ -217,13 +219,16 @@ function criarFila() {
         const msg = e instanceof Error ? e.message : String(e)
         if (etapa === 'venda' && p.venda.pedido_id && /não existe mais|ligado a um registro/i.test(msg)) {
           // O pedido foi apagado em outro aparelho, mas o dinheiro entrou: guarda a venda sem o pedido.
+          log.warn('fila-vendas', 'Pedido apagado em outro aparelho: a venda sobe sem o pedido', { venda: id, pedido: p.venda.pedido_id })
           trocar(new Map(pendentes).set(id, { ...p, venda: { ...p.venda, pedido_id: null } }))
           continue
         }
         if (!ERRO_DEFINITIVO.test(msg)) {
           ultimoErro = msg
+          log.warn('fila-vendas', `Envio adiado (${pendentes.size} na fila): ${msg}`, { venda: id, etapa })
           break
         }
+        log.error('fila-vendas', `Venda recusada pelo banco (etapa ${etapa}): ${msg}`, { venda: id, total: p.venda.total })
         perdidas = [
           ...perdidas,
           etapa === 'venda'
@@ -274,6 +279,13 @@ function criarFila() {
     },
     adicionar(p: VendaPendente) {
       ultimoErro = null
+      log.info('fila-vendas', `Venda registrada (${reais(p.venda.total)}), na fila para enviar`, {
+        venda: p.venda.id,
+        canal: p.venda.canal,
+        itens: p.venda.itens.length,
+        baixas: p.movimentos.length,
+        pedido: p.venda.pedido_id ?? null,
+      })
       trocar(new Map(pendentes).set(p.venda.id, p))
       void enviar()
     },

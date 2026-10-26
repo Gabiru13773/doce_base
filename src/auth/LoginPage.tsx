@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from 'react'
+import { log } from '../lib/log'
 import { Botao, Entrada } from '../components/ui'
 import { enderecoSupabase, supabase } from '../lib/supabase'
 
@@ -15,8 +16,13 @@ export default function LoginPage() {
     setEnviando(true)
     try {
       const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password: senha })
-      if (error) setErro(mensagemErro(error.message))
+      if (error) {
+        // sem e-mail nem senha no registro
+        log.warn('auth', `Login recusado: ${error.message}`)
+        setErro(mensagemErro(error.message))
+      }
     } catch (e) {
+      log.error('auth', 'Erro ao entrar', e)
       setErro(mensagemErro(e instanceof Error ? e.message : String(e)))
     } finally {
       setEnviando(false)

@@ -1,4 +1,5 @@
 import type { Session } from '@supabase/supabase-js'
+import { log } from '../lib/log'
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
 import { supabase } from '../lib/supabase'
 
@@ -21,11 +22,17 @@ export function ProvedorAuth({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!supabase) return
-    supabase.auth.getSession().then(({ data }) => {
+    supabase.auth.getSession().then(({ data, error }) => {
+      if (error) log.error('auth', `Não deu para ler a sessão: ${error.message}`)
+      else log.info('auth', data.session ? 'Sessão ativa' : 'Sem sessão (tela de entrar)')
       setSessao(data.session)
       setCarregando(false)
     })
-    const { data } = supabase.auth.onAuthStateChange((_evento, s) => setSessao(s))
+    const { data } = supabase.auth.onAuthStateChange((evento, s) => {
+      // TOKEN_REFRESHED acontece toda hora: só em debug
+      log[evento === 'TOKEN_REFRESHED' ? 'debug' : 'info']('auth', `Evento de login: ${evento}`)
+      setSessao(s)
+    })
     return () => data.subscription.unsubscribe()
   }, [])
 

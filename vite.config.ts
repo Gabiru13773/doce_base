@@ -4,7 +4,11 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { VitePWA } from 'vite-plugin-pwa'
 
+// Versão que aparece no registro (tela Diagnóstico): o commit publicado na Vercel, ou a hora do build.
+const versao = process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) || new Date().toISOString().slice(0, 16)
+
 export default defineConfig({
+  define: { __VERSAO__: JSON.stringify(versao) },
   plugins: [
     react(),
     tailwindcss(),

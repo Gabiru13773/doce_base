@@ -1,4 +1,5 @@
 import type { PostgrestError } from '@supabase/supabase-js'
+import { log } from './log'
 import { supabase } from './supabase'
 
 // Acesso simples às tabelas. Com Supabase configurado, os dados vão para a nuvem
@@ -153,7 +154,7 @@ let avisou = false
 function avisarSemArmazenamento(e: unknown) {
   if (avisou) return
   avisou = true
-  console.warn('Euforia: não foi possível usar o armazenamento do navegador; os dados ficam só até fechar a aba.', e)
+  log.warn('armazenamento', 'Não foi possível usar o armazenamento do navegador; os dados ficam só até fechar a aba.', e)
 }
 
 function lerTexto(chave: string): string | null {
@@ -240,7 +241,34 @@ const bancoLocal: Banco = {
   },
 }
 
-export const db: Banco = supabase ? bancoSupabase(supabase) : bancoLocal
+// Registra cada operação no console/Diagnóstico (src/lib/log.ts): tabela, filtro, quantas linhas,
+// ids e tempo — nunca o conteúdo das linhas.
+function comRegistro(banco: Banco): Banco {
+  async function medir<R>(op: string, tabela: string, detalhe: Record<string, unknown>, f: () => Promise<R>, resumo: (r: R) => Record<string, unknown>) {
+    const inicio = performance.now()
+    try {
+      const r = await f()
+      log.debug('db', `${op} ${tabela}`, { ...detalhe, ...resumo(r), ms: Math.round(performance.now() - inicio) })
+      return r
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      log[/internet|sessão/i.test(msg) ? 'warn' : 'error']('db', `${op} ${tabela} falhou: ${msg}`, { ...detalhe, ms: Math.round(performance.now() - inicio) })
+      throw e
+    }
+  }
+  return {
+    listar: (tabela, filtro, ordem) => medir('listar', tabela, { filtro }, () => banco.listar(tabela, filtro, ordem), (r) => ({ linhas: r.length })),
+    buscar: (tabela, id) => medir('buscar', tabela, { id }, () => banco.buscar(tabela, id), (r) => ({ achou: r !== null })),
+    salvar: (tabela, registro) => medir('salvar', tabela, { id: registro.id ?? '(novo)' }, () => banco.salvar(tabela, registro), (r) => ({ id: r.id })),
+    salvarVarios: (tabela, registros) =>
+      medir('salvarVarios', tabela, { linhas: registros.length }, () => banco.salvarVarios(tabela, registros), (r) => ({ ids: r.map((l) => l.id).slice(0, 10) })),
+    atualizar: (tabela, id, campos) =>
+      medir('atualizar', tabela, { id, campos: Object.keys(campos) }, () => banco.atualizar(tabela, id, campos), (r) => ({ achou: r !== null })),
+    remover: (tabela, id) => medir('remover', tabela, { id }, () => banco.remover(tabela, id), () => ({})),
+  } as Banco
+}
+
+export const db: Banco = comRegistro(supabase ? bancoSupabase(supabase) : bancoLocal)
 
 // ---- Erros em português -----------------------------------------------------
 
@@ -264,6 +292,8 @@ const RESTRICOES: Record<string, string> = {
 }
 
 function erroDoBanco(error: Pick<PostgrestError, 'message' | 'code'> & { details?: string | null }): Error {
+  // o erro original (em inglês, com o código) ajuda a achar a causa; a tela mostra a tradução
+  log.warn('db', 'Erro original do banco', { codigo: error.code, mensagem: error.message, detalhes: error.details ?? null })
   return new Error(traduzirErro(error.message ?? '', error.code ?? '', error.details ?? ''))
 }
 
